@@ -1067,27 +1067,27 @@ export default function GymSettingsPage() {
             <div className="grid gap-5 md:grid-cols-2">
 
               <Field
-                label="Instagram URL"
-                value={instagramUrl}
-                onChange={setInstagramUrl}
-                placeholder="https://instagram.com/..."
-                icon={Instagram}
-              />
+  label="Instagram URL"
+  value={instagramUrl}
+  onChange={setInstagramUrl}
+  placeholder="https://instagram.com/..."
+  icon={Globe2}
+/>
 
-              <Field
-                label="Facebook URL"
-                value={facebookUrl}
-                onChange={setFacebookUrl}
-                placeholder="https://facebook.com/..."
-              />
+<Field
+  label="Facebook URL"
+  value={facebookUrl}
+  onChange={setFacebookUrl}
+  placeholder="https://facebook.com/..."
+/>
 
-              <Field
-                label="WhatsApp Number"
-                value={whatsappNumber}
-                onChange={setWhatsappNumber}
-                placeholder="91XXXXXXXXXX"
-                icon={MessageCircle}
-              />
+<Field
+  label="WhatsApp Number"
+  value={whatsappNumber}
+  onChange={setWhatsappNumber}
+  placeholder="91XXXXXXXXXX"
+  icon={MessageCircle}
+/>
 
             </div>
           </section>
