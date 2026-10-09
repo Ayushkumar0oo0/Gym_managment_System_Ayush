@@ -57,10 +57,11 @@ export async function POST(request) {
       expiresAt,
     });
 
-    const appUrl =
-      process.env.NEXTAUTH_URL ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      "http://localhost:3000";
+    const appUrl = (
+  process.env.NEXTAUTH_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "http://localhost:3000"
+).replace(/\/+$/, "");
 
     const resetUrl = `${appUrl}/reset-password?token=${rawToken}`;
 
