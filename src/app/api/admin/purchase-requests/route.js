@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-
+import MembershipPlan from "@/models/MembershipPlan";
+import Promotion from "@/models/Promotion";
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
 
