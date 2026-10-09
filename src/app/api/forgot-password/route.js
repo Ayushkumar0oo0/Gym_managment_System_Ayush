@@ -77,14 +77,18 @@ export async function POST(request) {
         "If an account exists with this email, a password reset link has been sent.",
     });
   } catch (error) {
-    console.error("FORGOT PASSWORD ERROR:", error);
+  console.error("FORGOT PASSWORD ERROR:", {
+    name: error?.name,
+    message: error?.message,
+    stack: error?.stack,
+  });
 
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Something went wrong. Please try again later.",
-      },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Something went wrong. Please try again later.",
+    },
+    { status: 500 }
+  );
+}
 }
