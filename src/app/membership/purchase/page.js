@@ -1107,63 +1107,68 @@ function MembershipPurchasePageContent() {
         );
       }
 
-      const options = {
-        key: data.razorpay.key,
+const options = {
+  key: data.razorpay.key,
 
-        amount:
-          data.razorpay.amount,
+  amount: data.razorpay.amount,
 
-        currency:
-          data.razorpay.currency ||
-          "INR",
+  currency: data.razorpay.currency || "INR",
 
-        name: "Gym Management",
+  name: "Gym Management",
 
-        description:
-          selectedPromotion?.title ||
-          "Gym Membership Purchase",
+  description:
+    selectedPromotion?.title ||
+    "Gym Membership Purchase",
 
-        order_id:
-          data.razorpay.orderId,
+  order_id: data.razorpay.orderId,
 
-        prefill: {
-          name:
-            form.name.trim(),
+  // Request UPI as the payment method
+  
 
-          email:
-            form.email
-              .trim()
-              .toLowerCase(),
-
-          contact:
-            form.phone.trim(),
-        },
-
-        notes: {
-          purchaseOrderId,
-        },
-
-        theme: {
-          color: "#f97316",
-        },
-
-        handler:
-          async (
-            razorpayResponse
-          ) => {
-            await verifyRazorpayPayment({
-              purchaseOrderId,
-
-              razorpayOrderId:
-                razorpayResponse.razorpay_order_id,
-
-              razorpayPaymentId:
-                razorpayResponse.razorpay_payment_id,
-
-              razorpaySignature:
-                razorpayResponse.razorpay_signature,
-            });
+config: {
+  display: {
+    blocks: {
+      banks: {
+        name: "Pay via UPI",
+        instruments: [
+          {
+            method: "upi",
           },
+        ],
+      },
+    },
+    sequence: ["block.banks"],
+    preferences: {
+      show_default_blocks: false,
+    },
+  },
+},
+
+
+
+  prefill: {
+    name: form.name.trim(),
+    email: form.email.trim().toLowerCase(),
+    contact: form.phone.trim(),
+  },
+
+  notes: {
+    purchaseOrderId,
+  },
+
+  theme: {
+    color: "#f97316",
+  },
+
+  handler: async (razorpayResponse) => {
+    await verifyRazorpayPayment({
+      purchaseOrderId,
+      razorpayOrderId: razorpayResponse.razorpay_order_id,
+      razorpayPaymentId: razorpayResponse.razorpay_payment_id,
+      razorpaySignature: razorpayResponse.razorpay_signature,
+    });
+  },
+
 
         modal: {
           ondismiss: () => {

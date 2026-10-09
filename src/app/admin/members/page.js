@@ -440,14 +440,23 @@ export default function MembersPage() {
     });
   }
 
-  function handleChange(event) {
-    const { name, value } = event.target;
+  function handleChange(e) {
+  const { name, value } = e.target;
 
-    setForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
-  }
+  const phoneFields = [
+    "phone",
+    "emergencyContactPhone",
+  ];
+
+  const nextValue = phoneFields.includes(name)
+    ? value.replace(/\D/g, "").slice(0, 10)
+    : value;
+
+  setForm((prev) => ({
+    ...prev,
+    [name]: nextValue,
+  }));
+}
 
   /* =======================================================
      UPDATE MEMBER

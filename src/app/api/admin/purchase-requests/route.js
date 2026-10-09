@@ -161,21 +161,19 @@ export async function GET(request) {
         status: 200,
       }
     );
-  } catch (error) {
-    console.error(
-      "ADMIN PURCHASE REQUESTS GET ERROR:",
-      error
-    );
+   } catch (error) {
+  console.error("ADMIN PURCHASE REQUESTS GET ERROR:", {
+    name: error?.name,
+    message: error?.message,
+    stack: error?.stack,
+  });
 
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "Unable to load purchase requests.",
-      },
-      {
-        status: 500,
-      }
-    );
-  }
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Unable to load purchase requests.",
+    },
+    { status: 500 }
+  );
+}
 }
