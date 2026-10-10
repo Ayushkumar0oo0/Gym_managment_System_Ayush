@@ -197,8 +197,8 @@ async function getMember() {
     session.user.id
   )
     .select(
-      "_id role isActive gender"
-    )
+  "_id role isActive membershipAccessLocked gender"
+)
     .lean();
 
   if (!user) {
@@ -226,6 +226,19 @@ async function getMember() {
       ),
     };
   }
+  if (user.membershipAccessLocked) {
+  return {
+    error: NextResponse.json(
+      {
+        success: false,
+        message:
+          "Your membership access is locked. Please renew your membership to manage your diet profile.",
+        code: "MEMBERSHIP_ACCESS_LOCKED",
+      },
+      { status: 403 }
+    ),
+  };
+}
 
   return {
     session,

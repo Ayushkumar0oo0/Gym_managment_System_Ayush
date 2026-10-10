@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-
 import {
   ArrowRight,
   BadgeCheck,
+  Banknote,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -13,13 +13,13 @@ import {
   Dumbbell,
   Gift,
   Loader2,
+  MessageSquareText,
+  Play,
+  RotateCcw,
+  ShieldCheck,
   User,
   Wallet,
   Flame,
-  RotateCcw,
-  Play,
-  ShieldCheck,
-  MessageSquareText,
 } from "lucide-react";
 
 const DAYS = [
@@ -60,11 +60,7 @@ export default function MemberDashboard() {
   const [workoutData, setWorkoutData] = useState(null);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -91,84 +87,51 @@ export default function MemberDashboard() {
 
       if (!workoutResponse.ok) {
         throw new Error(
-          workoutResult.message || "Failed to load today's workout."
+          workoutResult.message || "Failed to load workout information."
         );
       }
 
       setMembership(membershipData.membership || null);
       setWorkoutData(workoutResult || null);
-    } catch (error) {
-      console.error("Member dashboard error:", error);
-
-      setError(error?.message || "Failed to load dashboard.");
+    } catch (err) {
+      console.error("Member dashboard error:", err);
+      setError(err?.message || "Failed to load your dashboard.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  function formatDate(date) {
-    if (!date) return "—";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "—";
-    }
-
-    return parsedDate.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
-
-  function getDaysRemaining(endDate) {
-    if (!endDate) return 0;
-
-    const end = new Date(endDate);
-    const now = new Date();
-
-    const difference = end.getTime() - now.getTime();
-
-    return Math.max(
-      0,
-      Math.ceil(difference / (1000 * 60 * 60 * 24))
-    );
-  }
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
 
   const active = useMemo(() => {
     if (!membership) return false;
 
     if (membership.status === "active") {
-      return true;
-    }
-
-    if (membership.endDate) {
-      return new Date(membership.endDate) > new Date();
+      return !membership.endDate || new Date(membership.endDate) > new Date();
     }
 
     return false;
   }, [membership]);
 
-  const daysRemaining = getDaysRemaining(membership?.endDate);
+  const daysRemaining = useMemo(
+    () => getDaysRemaining(membership?.endDate),
+    [membership?.endDate]
+  );
 
   const today = workoutData?.today || null;
-
-  const weeklySchedule =
-  workoutData?.weeklySchedule || [];
-
+  const weeklySchedule = workoutData?.weeklySchedule || [];
   const todayMachines = workoutData?.machines || [];
 
   const todayLabel = today?.day
-    ? FULL_DAY_LABELS[today.day] || today.day
-    : "Today";
+    ? FULL_DAY_LABELS[String(today.day).toLowerCase()] || today.day
+    : FULL_DAY_LABELS[DAYS[new Date().getDay()]];
 
   const todayWorkoutTitle = today?.isRestDay
     ? "Recovery Day"
     : today?.muscleGroups?.length
-      ? today.muscleGroups
-          .map(formatMuscleGroup)
-          .join(" + ")
+      ? today.muscleGroups.map(formatMuscleGroup).join(" + ")
       : "Today's Workout";
 
   if (loading) {
@@ -176,7 +139,7 @@ export default function MemberDashboard() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#050505] px-4 py-6 text-white sm:px-6 lg:px-8">
+    <main className="relative min-h-screen overflow-hidden bg-[#050505] px-4 py-6 text-white sm:px-6 sm:py-8 lg:px-8">
       <AmbientGlow />
 
       <div className="relative z-10 mx-auto max-w-7xl">
@@ -195,8 +158,8 @@ export default function MemberDashboard() {
             </h1>
 
             <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-500 sm:text-base">
-              Your workout, weekly schedule and membership —
-              everything you need for today's training.
+              Manage your membership, track your training, and stay consistent
+              with your fitness goals.
             </p>
           </div>
 
@@ -207,10 +170,11 @@ export default function MemberDashboard() {
           >
             <User size={15} />
             My Profile
+            <ArrowRight size={14} />
           </button>
         </header>
 
-        {/* ERROR */}
+        {/* ERROR MESSAGE */}
 
         {error && (
           <div className="mt-6 flex items-start justify-between gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-400">
@@ -229,488 +193,486 @@ export default function MemberDashboard() {
           </div>
         )}
 
-        {/* TODAY'S WORKOUT */}
+        {/* MEMBERSHIP OVERVIEW — PRIORITY ONE */}
 
         <section className="mt-8">
-          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-400">
-                Today's Training
-              </p>
+          <SectionHeading
+            eyebrow="Your Membership"
+            title="Membership overview"
+            description="Check your current plan and how much time you have left."
+          />
 
-              <h2 className="mt-1 text-2xl font-black sm:text-3xl">
-                {todayLabel}
-              </h2>
+          {membership ? (
+            <div className="relative mt-5 overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/[0.12] via-zinc-950 to-zinc-950">
+              <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-orange-500/10 blur-[100px]" />
+
+              <div className="relative grid gap-6 p-5 sm:p-7 lg:grid-cols-[1.4fr_1fr] lg:items-center lg:p-8">
+                <div>
+                  <div
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${
+                      active
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                        : "border-red-500/20 bg-red-500/10 text-red-400"
+                    }`}
+                  >
+                    {active ? (
+                      <CheckCircle2 size={13} />
+                    ) : (
+                      <Clock3 size={13} />
+                    )}
+                    {active ? "Membership Active" : "Membership Inactive"}
+                  </div>
+
+                  <h2 className="mt-4 text-2xl font-black sm:text-3xl">
+                    {membership.planName ||
+                      membership.plan?.name ||
+                      membership.membershipPlan?.name ||
+                      "Gym Membership"}
+                  </h2>
+
+                  <p className="mt-2 max-w-lg text-sm leading-6 text-zinc-500">
+                    {active
+                      ? "Keep up the consistency. Your next fitness milestone starts with today's session."
+                      : "Your membership is not currently active. Review your available plans to continue training."}
+                  </p>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => router.push("/member/membership")}
+                      className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400"
+                    >
+                      {active ? "Manage Membership" : "View Membership Plans"}
+                      <ArrowRight size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => router.push("/member/membership/status")}
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-bold text-zinc-300 transition hover:border-orange-500/30 hover:text-orange-400"
+                    >
+                      Full Status
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <MembershipStat
+                    label="Days remaining"
+                    value={active ? daysRemaining : 0}
+                    highlight
+                    icon={<Clock3 size={16} />}
+                  />
+
+                  <MembershipStat
+                    label="Current status"
+                    value={active ? "Active" : "Inactive"}
+                    icon={<BadgeCheck size={16} />}
+                  />
+
+                  <MembershipStat
+                    label="Start date"
+                    value={formatDate(membership.startDate)}
+                    icon={<CalendarDays size={16} />}
+                  />
+
+                  <MembershipStat
+                    label="Expiry date"
+                    value={formatDate(membership.endDate)}
+                    icon={<RotateCcw size={16} />}
+                  />
+                </div>
+              </div>
+
+              {active && daysRemaining <= 7 && (
+                <div className="relative flex items-start gap-3 border-t border-orange-500/15 bg-orange-500/[0.05] px-5 py-4 sm:px-7">
+                  <Clock3
+                    size={17}
+                    className="mt-0.5 shrink-0 text-orange-400"
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-orange-300">
+                      {daysRemaining === 0
+                        ? "Your membership expires today."
+                        : `Only ${daysRemaining} ${
+                            daysRemaining === 1 ? "day" : "days"
+                          } left on your membership.`}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      Renew in advance to keep your training routine on track.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!active && (
+                <div className="relative flex items-start gap-3 border-t border-red-500/15 bg-red-500/[0.04] px-5 py-4 sm:px-7">
+                  <Clock3
+                    size={17}
+                    className="mt-0.5 shrink-0 text-red-400"
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-red-300">
+                      Your membership is inactive.
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      Visit the membership page to view plans and renewal
+                      options.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
+          ) : (
+            <div className="mt-5 rounded-3xl border border-white/10 bg-zinc-950 p-6 sm:p-8">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-black">
+                    No membership information found
+                  </h3>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-500">
+                    Visit the membership page to explore available plans and
+                    get started.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => router.push("/member/membership")}
+                  className="inline-flex w-fit items-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400"
+                >
+                  Explore Membership
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* QUICK ACTIONS — PRIORITY TWO */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="Member Services"
+            title="Quick actions"
+            description="Everything you need, available in one place."
+          />
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ActionCard
+              icon={<CreditCard size={19} />}
+              title="Payment History"
+              description="Review your payments and payment status."
+              onClick={() => router.push("/member/payments")}
+              featured
+            />
+
+            <ActionCard
+              icon={<Dumbbell size={19} />}
+              title="Workout Library"
+              description="Explore workout plans and gym equipment."
+              onClick={() => router.push("/member/workouts")}
+            />
+
+            <ActionCard
+              icon={<Wallet size={19} />}
+              title="Membership"
+              description="Manage your plan and renewal."
+              onClick={() => router.push("/member/membership")}
+            />
+
+            <ActionCard
+              icon={<Gift size={19} />}
+              title="Gym Offers"
+              description="Explore current membership promotions."
+              onClick={() => router.push("/member/promotions")}
+            />
+
+            <ActionCard
+              icon={<Flame size={19} />}
+              title="Diet Plan"
+              description="View your gym's diet and nutrition guidance."
+              onClick={() => router.push("/member/diet")}
+            />
+
+            <ActionCard
+              icon={<MessageSquareText size={19} />}
+              title="Feedback & Requests"
+              description="Send feedback or share a request."
+              onClick={() => router.push("/member/feedback")}
+            />
+          </div>
+        </section>
+
+        {/* TODAY'S WORKOUT — PRIORITY THREE */}
+
+        <section className="mt-10">
+          <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <SectionHeading
+              eyebrow="Today's Training"
+              title={todayLabel}
+              description="Your scheduled workout at a glance."
+            />
 
             <button
               type="button"
               onClick={() => router.push("/member/workouts")}
-              className="inline-flex items-center gap-2 text-sm font-bold text-zinc-500 transition hover:text-orange-400"
+              className="inline-flex w-fit items-center gap-2 text-sm font-bold text-zinc-500 transition hover:text-orange-400"
             >
               Full Workout Library
               <ArrowRight size={15} />
             </button>
           </div>
 
-          <section className="relative overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/[0.13] via-zinc-950 to-zinc-950 shadow-2xl shadow-black/30">
-            <div className="absolute right-[-150px] top-[-180px] h-[420px] w-[420px] rounded-full bg-orange-500/10 blur-[130px]" />
+          <div className="relative overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/[0.10] via-zinc-950 to-zinc-950">
+            <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-orange-500/10 blur-[100px]" />
 
-            <div className="relative p-6 sm:p-8 lg:p-10">
-              <div className="flex flex-col justify-between gap-8 lg:flex-row">
-                <div className="max-w-2xl">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-orange-400">
-                      <Flame size={12} />
-                      Today
-                    </span>
+            <div className="relative grid gap-6 p-5 sm:p-7 lg:grid-cols-[1fr_1.2fr] lg:items-center lg:p-8">
+              <div>
+                <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-orange-400">
+                  <Flame size={15} />
+                  Training plan
+                </div>
 
-                    {today?.groupName && (
-                      <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">
-                        {today.groupName}
-                      </span>
-                    )}
+                <h3 className="mt-4 text-2xl font-black sm:text-3xl">
+                  {todayWorkoutTitle}
+                </h3>
+
+                <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500">
+                  {today?.isRestDay
+                    ? "Your body needs recovery too. Take a rest day, stay hydrated, and get ready for your next session."
+                    : "Follow your scheduled workout, use proper form, and stay consistent with your fitness goals."}
+                </p>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs font-bold text-zinc-400">
+                    <CalendarDays size={14} className="text-orange-400" />
+                    {todayLabel}
                   </div>
 
-                  <h3 className="mt-5 text-3xl font-black sm:text-4xl">
-                    {todayWorkoutTitle}
-                  </h3>
-
-                  <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-500">
+                  <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs font-bold text-zinc-400">
+                    <Dumbbell size={14} className="text-orange-400" />
                     {today?.isRestDay
-                      ? "Take today to recover. Rest is part of getting stronger and keeping your body ready for the next session."
-                      : `Your ${todayWorkoutTitle.toLowerCase()} session is ready. Follow the recommended machines and exercise instructions.`}
-                  </p>
-
-                  {!today?.isRestDay && (
-                    <div className="mt-6 flex flex-wrap gap-3">
-                      {today?.muscleGroups?.map((group) => (
-                        <span
-                          key={group}
-                          className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-bold capitalize text-zinc-300"
-                        >
-                          {formatMuscleGroup(group)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push("/member/workouts")
-                    }
-                    className="mt-7 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-6 py-3.5 text-sm font-black text-black transition hover:bg-orange-400"
-                  >
-                    {today?.isRestDay ? (
-                      <>
-                        View Weekly Schedule
-                        <CalendarDays size={16} />
-                      </>
-                    ) : (
-                      <>
-                        <Play size={15} fill="currentColor" />
-                        Start Today's Workout
-                        <ArrowRight size={16} />
-                      </>
-                    )}
-                  </button>
+                      ? "Recovery"
+                      : `${todayMachines.length} equipment items`}
+                  </div>
                 </div>
 
-                <div className="grid shrink-0 grid-cols-2 gap-3 self-start lg:w-[300px]">
-                  <StatCard
-                    value={
-                      today?.isRestDay
-                        ? "REST"
-                        : todayMachines.length
-                    }
-                    label={
-                      today?.isRestDay
-                        ? "Today's Status"
-                        : "Exercises"
-                    }
-                    icon={<Dumbbell size={17} />}
-                  />
-
-                  <StatCard
-                    value={
-                      today?.isRestDay
-                        ? "Recovery"
-                        : today?.muscleGroups?.length || 0
-                    }
-                    label={
-                      today?.isRestDay
-                        ? "Focus"
-                        : "Muscle Groups"
-                    }
-                    icon={<Flame size={17} />}
-                  />
-
-                  <StatCard
-                    value={weeklySchedule.length || 7}
-                    label="Weekly Days"
-                    icon={<CalendarDays size={17} />}
-                  />
-
-                  <StatCard
-                    value={today?.groupId || "—"}
-                    label="Workout Group"
-                    icon={<BadgeCheck size={17} />}
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/member/workouts")}
+                  className="mt-5 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-black text-black transition hover:bg-orange-400"
+                >
+                  <Play size={15} />
+                  Explore Workouts
+                  <ArrowRight size={15} />
+                </button>
               </div>
 
-              {!today?.isRestDay &&
-                todayMachines.length > 0 && (
-                  <div className="mt-8 border-t border-white/10 pt-7">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-black">
-                          Today's Equipment
-                        </p>
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-black text-zinc-200">
+                      Today's equipment
+                    </h4>
+                    <p className="mt-1 text-xs text-zinc-600">
+                      Equipment listed for your training.
+                    </p>
+                  </div>
 
-                        <p className="mt-1 text-xs text-zinc-600">
-                          Recommended machines for your session
-                        </p>
-                      </div>
+                  <Dumbbell size={19} className="text-orange-400" />
+                </div>
 
-                      <span className="text-xs font-bold text-orange-400">
-                        {todayMachines.length} available
-                      </span>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {todayMachines
-                        .slice(0, 4)
-                        .map((machine) => (
-                          <MachineMiniCard
-                            key={machine._id || machine.key}
-                            machine={machine}
-                          />
-                        ))}
-                    </div>
+                {today?.isRestDay ? (
+                  <div className="mt-5 rounded-xl border border-white/5 bg-zinc-950 p-4 text-sm leading-6 text-zinc-500">
+                    It's a recovery day. Rest well and return stronger for your
+                    next workout.
+                  </div>
+                ) : todayMachines.length > 0 ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {todayMachines.slice(0, 4).map((machine, index) => (
+                      <MachineMiniCard
+                        key={machine._id || machine.id || machine.name || index}
+                        machine={machine}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-5 rounded-xl border border-white/5 bg-zinc-950 p-4 text-sm leading-6 text-zinc-500">
+                    No equipment has been assigned to today's workout yet.
+                    Open the workout library to explore available exercises.
                   </div>
                 )}
-            </div>
-          </section>
-        </section>
 
-        {/* WEEKLY SCHEDULE */}
-
-        <section className="mt-8">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-400">
-                Your Rotation
-              </p>
-
-              <h2 className="mt-1 text-xl font-black sm:text-2xl">
-                Weekly Schedule
-              </h2>
-            </div>
-
-            <div className="hidden items-center gap-2 text-xs text-zinc-600 sm:flex">
-              <RotateCcw size={13} />
-              Group {today?.groupId || "—"}
+                {todayMachines.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/member/workouts")}
+                    className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-orange-400 transition hover:text-orange-300"
+                  >
+                    View all {todayMachines.length} items
+                    <ArrowRight size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+        </section>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-            {getOrderedWeek(weeklySchedule).map((item) => {
-              const isToday = item.day === today?.day;
+        {/* WEEKLY SCHEDULE — PRIORITY FOUR */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="Stay Consistent"
+            title="Weekly schedule"
+            description="See your training split for the week."
+          />
+
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+            {getOrderedWeek(weeklySchedule).map((item, index) => {
+              const isToday =
+                item.day === DAYS[new Date().getDay()];
+
+              const isRestDay =
+                item.isRestDay ||
+                item.muscleGroups?.includes("rest");
+
+              const groups = (item.muscleGroups || [])
+                .filter((group) => group !== "rest")
+                .map(formatMuscleGroup);
 
               return (
                 <button
-                  key={item.day}
+                  key={item.day || index}
                   type="button"
                   onClick={() =>
                     router.push(
-                      `/member/workouts?day=${item.day}`
+                      `/member/workouts?day=${encodeURIComponent(item.day)}`
                     )
                   }
-                  className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition duration-300 hover:-translate-y-0.5 ${
+                  className={`group min-h-36 rounded-2xl border p-4 text-left transition duration-200 hover:-translate-y-0.5 ${
                     isToday
-                      ? "border-orange-500/40 bg-orange-500/[0.09] shadow-lg shadow-orange-950/20"
+                      ? "border-orange-500/40 bg-orange-500/[0.08]"
                       : "border-white/10 bg-zinc-950 hover:border-orange-500/20"
                   }`}
                 >
-                  {isToday && (
-                    <div className="absolute right-3 top-3 h-2 w-2 rounded-full bg-orange-400 shadow-lg shadow-orange-500/50" />
-                  )}
-
-                  <p
-                    className={`text-[10px] font-black uppercase tracking-wider ${
-                      isToday
-                        ? "text-orange-400"
-                        : "text-zinc-600"
-                    }`}
-                  >
-                    {DAY_LABELS[item.day]}
-                  </p>
-
-                  <p className="mt-2 text-sm font-black text-zinc-200">
-                    {item.isRestDay
-                      ? "Rest Day"
-                      : item.muscleGroups
-                          ?.map(formatMuscleGroup)
-                          .join(" + ")}
-                  </p>
-
-                  <div className="mt-4 flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span
-                      className={`text-[10px] font-bold ${
-                        isToday
-                          ? "text-orange-400"
-                          : "text-zinc-700"
+                      className={`text-xs font-black uppercase tracking-wider ${
+                        isToday ? "text-orange-400" : "text-zinc-500"
                       }`}
                     >
-                      {isToday ? "TODAY" : "VIEW"}
+                      {DAY_LABELS[item.day] || item.day}
                     </span>
 
-                    <ArrowRight
-                      size={13}
-                      className="text-zinc-700 transition group-hover:translate-x-1 group-hover:text-orange-400"
-                    />
+                    {isToday && (
+                      <span className="rounded-md bg-orange-500 px-1.5 py-1 text-[8px] font-black uppercase text-black">
+                        Today
+                      </span>
+                    )}
                   </div>
+
+                  <div className="mt-5 flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.04] text-orange-400 transition group-hover:bg-orange-500/10">
+                    {isRestDay ? (
+                      <RotateCcw size={17} />
+                    ) : (
+                      <Dumbbell size={17} />
+                    )}
+                  </div>
+
+                  <p className="mt-3 text-sm font-black text-zinc-200">
+                    {isRestDay
+                      ? "Rest Day"
+                      : groups.length
+                        ? groups.join(", ")
+                        : "Workout"}
+                  </p>
+
+                  <p className="mt-1 text-[10px] text-zinc-600">
+                    {isRestDay ? "Recovery & rest" : "View workout"}
+                  </p>
                 </button>
               );
             })}
           </div>
         </section>
 
-        {/* MEMBERSHIP */}
+        {/* SECONDARY LINKS */}
 
-        {membership && (
-          <section className="mt-8">
-            <div className="mb-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-400">
-                Membership
-              </p>
+        <section className="mt-10">
+          <div className="rounded-2xl border border-white/10 bg-zinc-950/80 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 text-orange-400">
+                <ShieldCheck size={19} />
+              </div>
 
-              <h2 className="mt-1 text-xl font-black">
-                Your Membership
-              </h2>
-            </div>
-
-            <div className="overflow-hidden rounded-3xl border border-white/10 bg-zinc-950">
-              <div className="grid lg:grid-cols-[1fr_auto]">
-                <div className="p-6 sm:p-8">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-orange-400">
-                      <BadgeCheck size={12} />
-                      {membership.plan?.name ||
-                        membership.planName ||
-                        "Membership"}
-                    </span>
-
-                    <span
-                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider ${
-                        active
-                          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-                          : "border-red-500/20 bg-red-500/10 text-red-400"
-                      }`}
-                    >
-                      {active ? "Active" : "Expired"}
-                    </span>
-                  </div>
-
-                  <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                    <MembershipStat
-                      label="Days Remaining"
-                      value={daysRemaining}
-                      highlight
-                    />
-
-                    <MembershipStat
-                      label="Start Date"
-                      value={formatDate(
-                        membership.startDate
-                      )}
-                    />
-
-                    <MembershipStat
-                      label="End Date"
-                      value={formatDate(
-                        membership.endDate
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-col justify-center gap-3 border-t border-white/10 p-6 lg:border-l lg:border-t-0 sm:p-8">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push("/member/membership")
-                    }
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-6 py-3 text-sm font-black text-black transition hover:bg-orange-400"
-                  >
-                    {active
-                      ? "Manage Membership"
-                      : "Renew Membership"}
-                    <ArrowRight size={15} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push(
-                        "/member/membership/status"
-                      )
-                    }
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black px-6 py-3 text-sm font-bold text-zinc-500 transition hover:border-orange-500/20 hover:text-white"
-                  >
-                    Full Status
-                  </button>
-                </div>
+              <div>
+                <h3 className="font-black text-zinc-200">
+                  Your member account
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-zinc-600">
+                  Keep your profile details up to date and contact the gym if
+                  you need assistance.
+                </p>
               </div>
             </div>
 
-            {active && daysRemaining <= 7 && (
-              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-                <Clock3
-                  size={17}
-                  className="mt-0.5 shrink-0 text-amber-400"
-                />
-
-                <div>
-                  <p className="text-sm font-black text-amber-400">
-                    Membership expiring soon
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-zinc-600">
-                    Your membership expires in{" "}
-                    {daysRemaining}{" "}
-                    {daysRemaining === 1
-                      ? "day"
-                      : "days"}
-                    . Renew to keep your training
-                    uninterrupted.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {!active && (
-              <div className="mt-4 flex flex-col justify-between gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-5 sm:flex-row sm:items-center">
-                <div className="flex items-start gap-3">
-                  <ShieldCheck
-                    size={18}
-                    className="mt-0.5 shrink-0 text-red-400"
-                  />
-
-                  <div>
-                    <p className="text-sm font-black text-red-400">
-                      Membership expired
-                    </p>
-
-                    <p className="mt-1 text-xs text-zinc-600">
-                      Renew your membership to continue
-                      using the gym.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    router.push("/member/membership")
-                  }
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400"
-                >
-                  Renew Now
-                  <ArrowRight size={15} />
-                </button>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* QUICK ACTIONS */}
-
-        <section className="mt-8">
-          <div className="mb-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-400">
-              Member Tools
-            </p>
-
-            <h2 className="mt-1 text-xl font-black">
-              Everything You Need
-            </h2>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <ActionCard
-              icon={<Dumbbell size={19} />}
-              title="Workouts"
-              description="Today's exercises and machine tutorials"
-              onClick={() =>
-                router.push("/member/workouts")
-              }
-              featured
-            />
-
-            <ActionCard
-              icon={<Wallet size={19} />}
-              title="Diet Plan"
-              description="View your personalized nutrition plan"
-              onClick={() =>
-                router.push("/member/diet")
-              }
-            />
-
-            <ActionCard
-              icon={<CreditCard size={19} />}
-              title="Payments"
-              description="View your payment history"
-              onClick={() =>
-                router.push("/member/payments")
-              }
-            />
-
-            <ActionCard
-              icon={<Gift size={19} />}
-              title="Gym Offers"
-              description="Check available promotions"
-              onClick={() =>
-                router.push("/member/promotions")
-              }
-            />
-
-            <ActionCard
-              icon={<User size={19} />}
-              title="Profile"
-              description="Manage your personal information"
-              onClick={() =>
-                router.push("/member/profile")
-              }
-            />
-
-            <ActionCard
-              icon={<MessageSquareText size={19} />}
-              title="Feedback & Requests"
-              description="Report an issue, request equipment, or suggest a product"
-              onClick={() =>
-                router.push("/member/feedback")
-              }
-            />
+            <button
+              type="button"
+              onClick={() => router.push("/member/profile")}
+              className="mt-4 inline-flex shrink-0 items-center gap-2 text-sm font-bold text-orange-400 transition hover:text-orange-300 sm:mt-0"
+            >
+              Open Profile
+              <ArrowRight size={15} />
+            </button>
           </div>
         </section>
 
         {/* FOOTER */}
 
-        <div className="mt-10 flex items-center justify-center gap-2 pb-5 text-[11px] text-zinc-800">
+        <footer className="mt-10 flex flex-wrap items-center justify-center gap-2 pb-5 text-center text-[11px] text-zinc-700">
           <CheckCircle2 size={13} />
           Train hard. Stay consistent. Keep progressing.
-        </div>
+        </footer>
       </div>
     </main>
   );
 }
 
 /* ============================================================
-   HELPERS
+   HELPER FUNCTIONS
 ============================================================ */
+
+function formatDate(date) {
+  if (!date) return "—";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "—";
+  }
+
+  return parsedDate.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getDaysRemaining(endDate) {
+  if (!endDate) return 0;
+
+  const end = new Date(endDate);
+
+  if (Number.isNaN(end.getTime())) {
+    return 0;
+  }
+
+  const now = new Date();
+  const difference = end.getTime() - now.getTime();
+
+  return Math.max(0, Math.ceil(difference / (1000 * 60 * 60 * 24)));
+}
 
 function formatMuscleGroup(value) {
   if (!value) return "";
@@ -732,28 +694,29 @@ function formatMuscleGroup(value) {
     abs: "Abs",
   };
 
+  const normalized = String(value).toLowerCase();
+
   return (
-    labels[value] ||
-    String(value)
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (letter) =>
-        letter.toUpperCase()
-      )
+    labels[normalized] ||
+    normalized.replaceAll("_", " ").replace(/\b\w/g, (letter) =>
+      letter.toUpperCase()
+    )
   );
 }
 
 function getOrderedWeek(schedule) {
   const map = new Map(
-    schedule.map((item) => [item.day, item])
+    (Array.isArray(schedule) ? schedule : []).map((item) => [
+      String(item.day).toLowerCase(),
+      item,
+    ])
   );
 
   const todayIndex = new Date().getDay();
 
-  const orderedDays = [
-    ...Array.from({ length: 7 }, (_, index) => {
-      return DAYS[(todayIndex + index) % 7];
-    }),
-  ];
+  const orderedDays = Array.from({ length: 7 }, (_, index) => {
+    return DAYS[(todayIndex + index) % 7];
+  });
 
   return orderedDays.map(
     (day) =>
@@ -766,94 +729,47 @@ function getOrderedWeek(schedule) {
 }
 
 /* ============================================================
-   COMPONENTS
+   UI COMPONENTS
 ============================================================ */
 
-function StatCard({ value, label, icon }) {
+function SectionHeading({ eyebrow, title, description }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/30 p-4 backdrop-blur">
-      <div className="flex items-center gap-2 text-orange-400">
-        {icon}
-
-        <span className="text-[9px] font-black uppercase tracking-wider text-zinc-700">
-          {label}
-        </span>
-      </div>
-
-      <p className="mt-3 text-xl font-black text-zinc-200">
-        {value}
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-400">
+        {eyebrow}
       </p>
+
+      <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">
+        {title}
+      </h2>
+
+      {description && (
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+          {description}
+        </p>
+      )}
     </div>
   );
 }
 
-function MachineMiniCard({ machine }) {
-  return (
-    <div className="group overflow-hidden rounded-2xl border border-white/10 bg-black/30 p-3 transition hover:border-orange-500/20">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-zinc-950">
-          {machine.imageUrl ? (
-            <img
-              src={machine.imageUrl}
-              alt={machine.name}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <Dumbbell
-              size={17}
-              className="text-orange-400"
-            />
-          )}
-        </div>
-
-        <div className="min-w-0">
-          <p className="truncate text-xs font-black text-zinc-200">
-            {machine.shortName || machine.name}
-          </p>
-
-          <p className="mt-1 truncate text-[10px] capitalize text-zinc-600">
-            {machine.category}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between text-[10px]">
-        <span className="font-bold text-zinc-600">
-          {machine.defaultSets} sets
-        </span>
-
-        <span className="font-bold text-orange-400">
-          {machine.defaultReps}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function MembershipStat({
-  label,
-  value,
-  highlight = false,
-}) {
+function MembershipStat({ label, value, highlight = false, icon }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-      <p className="text-[9px] font-black uppercase tracking-wider text-zinc-700">
-        {label}
-      </p>
+      <div className="flex items-center gap-2 text-zinc-600">
+        <span className="text-orange-400">{icon}</span>
+        <p className="text-[9px] font-black uppercase tracking-wider">
+          {label}
+        </p>
+      </div>
 
       <p
-        className={`mt-2 text-lg font-black ${
-          highlight
-            ? "text-orange-400"
-            : "text-zinc-300"
+        className={`mt-3 break-words text-lg font-black ${
+          highlight ? "text-orange-400" : "text-zinc-200"
         }`}
       >
         {value}
-
         {highlight && (
-          <span className="ml-1 text-xs text-zinc-700">
-            days
-          </span>
+          <span className="ml-1 text-xs font-bold text-zinc-600">days</span>
         )}
       </p>
     </div>
@@ -877,11 +793,11 @@ function ActionCard({
           : "border-white/10 bg-zinc-950 hover:border-orange-500/20"
       }`}
     >
-      <div className="absolute right-[-35px] top-[-35px] h-24 w-24 rounded-full bg-orange-500/5 blur-2xl transition group-hover:bg-orange-500/10" />
+      <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-orange-500/5 blur-2xl transition group-hover:bg-orange-500/10" />
 
       <div className="relative">
         <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+          className={`flex h-11 w-11 items-center justify-center rounded-xl ${
             featured
               ? "bg-orange-500 text-black"
               : "bg-orange-500/10 text-orange-400"
@@ -891,13 +807,11 @@ function ActionCard({
         </div>
 
         <div className="mt-5 flex items-center justify-between gap-3">
-          <p className="font-black text-zinc-200">
-            {title}
-          </p>
+          <p className="font-black text-zinc-200">{title}</p>
 
           <ArrowRight
             size={15}
-            className="text-zinc-700 transition group-hover:translate-x-1 group-hover:text-orange-400"
+            className="shrink-0 text-zinc-700 transition group-hover:translate-x-1 group-hover:text-orange-400"
           />
         </div>
 
@@ -906,6 +820,46 @@ function ActionCard({
         </p>
       </div>
     </button>
+  );
+}
+
+function MachineMiniCard({ machine }) {
+  return (
+    <div className="group overflow-hidden rounded-xl border border-white/10 bg-zinc-950/80 p-3 transition hover:border-orange-500/20">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black">
+          {machine.imageUrl ? (
+            <img
+              src={machine.imageUrl}
+              alt={machine.name || "Workout equipment"}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <Dumbbell size={17} className="text-orange-400" />
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <p className="truncate text-xs font-black text-zinc-200">
+            {machine.shortName || machine.name || "Workout equipment"}
+          </p>
+
+          <p className="mt-1 truncate text-[10px] capitalize text-zinc-600">
+            {machine.category || "Equipment"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-2 text-[10px]">
+        <span className="font-bold text-zinc-600">
+          {machine.defaultSets != null ? `${machine.defaultSets} sets` : "Sets vary"}
+        </span>
+
+        <span className="font-bold text-orange-400">
+          {machine.defaultReps || "View details"}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -924,25 +878,22 @@ function LoadingScreen() {
     <main className="min-h-screen bg-[#050505] px-4 py-8 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl animate-pulse">
         <div className="h-4 w-32 rounded bg-zinc-900" />
-
         <div className="mt-5 h-12 w-72 rounded-xl bg-zinc-900" />
-
         <div className="mt-3 h-4 w-96 max-w-full rounded bg-zinc-950" />
 
-        <div className="mt-8 h-[430px] rounded-3xl bg-zinc-950" />
-
+        <div className="mt-8 h-64 rounded-3xl bg-zinc-950" />
         <div className="mt-8 h-5 w-40 rounded bg-zinc-900" />
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          {Array.from({ length: 7 }).map(
-            (_, index) => (
-              <div
-                key={index}
-                className="h-32 rounded-2xl bg-zinc-950"
-              />
-            )
-          )}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="h-32 rounded-2xl bg-zinc-950" />
+          ))}
         </div>
+      </div>
+
+      <div className="mt-8 flex items-center justify-center gap-2 text-xs text-zinc-600">
+        <Loader2 size={15} className="animate-spin text-orange-400" />
+        Loading your dashboard...
       </div>
     </main>
   );

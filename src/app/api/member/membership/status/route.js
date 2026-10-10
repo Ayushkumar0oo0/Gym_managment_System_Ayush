@@ -91,8 +91,8 @@ export async function GET(request) {
       session.user.id
     )
       .select(
-        "_id name email role gender isActive"
-      )
+  "_id name email role gender isActive membershipAccessLocked"
+)
       .lean();
 
     if (!user) {
@@ -116,15 +116,16 @@ export async function GET(request) {
       );
     }
 
-    if (user.isActive === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Your account is inactive.",
-        },
-        { status: 403 }
-      );
-    }
+    if (!user.isActive) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
     // =========================================================
     // 5. FIND CURRENT MEMBERSHIP

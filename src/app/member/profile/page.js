@@ -5,88 +5,71 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
-  BadgeCheck,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  Dumbbell,
-  Edit3,
-  FileText,
-  KeyRound,
-  Loader2,
+  UserRound,
   Mail,
   Phone,
+  CalendarDays,
   ShieldCheck,
-  User,
-  Wallet,
+  Dumbbell,
+  Salad,
+  CreditCard,
+  Pencil,
+  Save,
   X,
-  XCircle,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 
+const inputClass =
+  "mt-2 h-12 w-full rounded-xl border border-white/10 bg-[#111113] px-4 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-orange-500/60 focus:ring-4 focus:ring-orange-500/10";
+
 export default function MemberProfilePage() {
-  const [user, setUser] = useState(null);
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  const [editing, setEditing] = useState(false);
-
+  const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     name: "",
-    email: "",
     phone: "",
   });
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   async function loadProfile() {
-    try {
-      setLoading(true);
-      setError("");
+    setLoading(true);
+    setError("");
 
-      const response = await fetch(
-        "/api/member/profile",
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+    try {
+      const response = await fetch("/api/member/profile", {
+        cache: "no-store",
+      });
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
-            "Failed to load profile."
-        );
+      if (!response.ok) {
+        throw new Error(data?.message || "Unable to load your profile.");
       }
 
-      setUser(data.user);
+      const current = data?.user || data?.profile || data?.member || data;
 
+      setProfile(current);
       setForm({
-        name: data.user?.name || "",
-        email: data.user?.email || "",
-        phone: data.user?.phone || "",
+        name: current?.name || "",
+        phone: current?.phone || "",
       });
-    } catch (error) {
-      console.error(
-        "MEMBER PROFILE PAGE ERROR:",
-        error
-      );
-
-      setError(
-        error?.message ||
-          "Unable to load your profile."
-      );
+    } catch (err) {
+      setError(err?.message || "Unable to load your profile.");
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -97,242 +80,163 @@ export default function MemberProfilePage() {
     }));
   }
 
-  async function handleSubmit(event) {
+  async function handleSave(event) {
     event.preventDefault();
+    setSaving(true);
+    setError("");
+    setMessage("");
 
     try {
-      setSaving(true);
-      setError("");
-      setSuccess("");
-
-      const response = await fetch(
-        "/api/member/profile",
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: form.name,
-            email: form.email,
-            phone: form.phone,
-          }),
-        }
-      );
+      const response = await fetch("/api/member/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+        }),
+      });
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
-            "Failed to update profile."
-        );
+      if (!response.ok) {
+        throw new Error(data?.message || "Unable to update your profile.");
       }
 
-      setUser(data.user);
+      const updated = data?.user || data?.profile || data?.member;
 
-      setForm({
-        name: data.user?.name || "",
-        email: data.user?.email || "",
-        phone: data.user?.phone || "",
-      });
+      if (updated) {
+        setProfile((current) => ({ ...current, ...updated }));
+        setForm({
+          name: updated.name ?? form.name,
+          phone: updated.phone ?? form.phone,
+        });
+      } else {
+        setProfile((current) => ({
+          ...current,
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+        }));
+      }
 
       setEditing(false);
-      setSuccess(
-        "Profile updated successfully."
-      );
-
-      setTimeout(() => {
-        setSuccess("");
-      }, 4000);
-    } catch (error) {
-      console.error(
-        "MEMBER PROFILE UPDATE ERROR:",
-        error
-      );
-
-      setError(
-        error?.message ||
-          "Unable to update your profile."
-      );
+      setMessage("Your profile has been updated.");
+    } catch (err) {
+      setError(err?.message || "Unable to update your profile.");
     } finally {
       setSaving(false);
     }
   }
 
-  function cancelEditing() {
-    setEditing(false);
-    setError("");
-    setSuccess("");
-
-    setForm({
-      name: user?.name || "",
-      email: user?.email || "",
-      phone: user?.phone || "",
-    });
-  }
-
-  function formatDate(date) {
-    if (!date) return "—";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "—";
-    }
-
-    return parsedDate.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
-
   if (loading) {
-    return <LoadingScreen />;
-  }
-
-  if (error && !user) {
     return (
-      <main className="min-h-screen bg-[#050505] px-4 py-8 text-white sm:px-6 lg:px-8">
-        <AmbientGlow />
-
-        <div className="relative z-10 mx-auto flex min-h-[80vh] max-w-3xl items-center justify-center">
-          <div className="w-full rounded-3xl border border-red-500/20 bg-zinc-950 p-7 text-center shadow-2xl shadow-black/30 sm:p-10">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
-              <XCircle size={26} />
-            </div>
-
-            <h1 className="mt-5 text-2xl font-black">
-              Unable to load profile
-            </h1>
-
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-zinc-500">
-              {error}
-            </p>
-
-            <button
-              type="button"
-              onClick={loadProfile}
-              className="mt-7 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400"
-            >
-              Try Again
-              <ArrowRight size={15} />
-            </button>
-          </div>
+      <main className="min-h-screen bg-[#070707] px-4 py-8 text-white sm:px-6">
+        <div className="mx-auto max-w-5xl animate-pulse">
+          <div className="h-4 w-40 rounded bg-zinc-800" />
+          <div className="mt-8 h-40 rounded-3xl bg-zinc-900" />
+          <div className="mt-5 h-72 rounded-3xl bg-zinc-900" />
         </div>
       </main>
     );
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#050505] px-4 py-6 text-white sm:px-6 sm:py-8 lg:px-8">
-      <AmbientGlow />
+    <main className="relative min-h-screen overflow-hidden bg-[#070707] px-4 py-6 text-white sm:px-6 sm:py-8 lg:px-8">
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute left-1/2 top-[-230px] h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-orange-500/[0.08] blur-[130px]" />
+      </div>
 
-      <div className="relative z-10 mx-auto max-w-6xl">
-        {/* Header */}
-        <section className="mb-8">
-          <Link
-            href="/member"
-            className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 transition hover:text-orange-400"
-          >
-            <ArrowLeft size={15} />
-            Back to Dashboard
-          </Link>
+      <div className="relative mx-auto max-w-5xl">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 transition hover:text-orange-400"
+        >
+          <ArrowLeft size={16} />
+          Back to Dashboard
+        </Link>
 
-          <div className="mt-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+        <header className="mt-7">
+          <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/[0.08] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-orange-400">
+            <UserRound size={14} />
+            My Account
+          </div>
+
+          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-orange-400">
-                <User size={12} />
-                Member Account
-              </div>
-
-              <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl lg:text-5xl">
-                My{" "}
-                <span className="text-orange-500">
-                  Profile
-                </span>
+              <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
+                My <span className="text-orange-500">Profile.</span>
               </h1>
-
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600 sm:text-base">
-                Manage your personal information and
-                keep your gym account up to date.
+              <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-400">
+                Manage your personal details and access your gym services
+                from one place.
               </p>
             </div>
 
-            <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-zinc-950 px-4 py-3 text-xs text-zinc-600 sm:flex">
-              <ShieldCheck
-                size={15}
-                className="text-orange-400"
-              />
-              Secure Member Account
-            </div>
+            <button
+              type="button"
+              onClick={loadProfile}
+              className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-white/10 bg-[#111113] px-4 py-3 text-sm font-bold text-zinc-300 transition hover:border-orange-500/30 hover:text-orange-400 sm:self-auto"
+            >
+              <RefreshCw size={15} />
+              Refresh
+            </button>
           </div>
-        </section>
+        </header>
 
-        {/* Messages */}
-        {error && user && (
-          <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/5 px-5 py-4 text-sm text-red-400">
-            <XCircle
-              size={17}
-              className="mt-0.5 shrink-0"
-            />
+        {error && (
+          <div
+            role="alert"
+            className="mt-6 flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.08] p-4 text-sm text-red-300"
+          >
+            <AlertCircle size={18} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        {success && (
-          <div className="mb-5 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 text-sm text-emerald-400">
-            <CheckCircle2
-              size={17}
-              className="mt-0.5 shrink-0"
-            />
-            <span>{success}</span>
+        {message && (
+          <div
+            role="status"
+            className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 text-sm text-emerald-300"
+          >
+            <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+            <span>{message}</span>
           </div>
         )}
 
-        {/* Profile Hero */}
-        <section className="relative overflow-hidden rounded-3xl border border-orange-500/15 bg-gradient-to-br from-orange-500/[0.08] via-zinc-950 to-zinc-950 shadow-2xl shadow-black/30">
-          <div className="absolute right-[-100px] top-[-120px] h-72 w-72 rounded-full bg-orange-500/10 blur-[100px]" />
+        {/* Profile summary */}
+        <section className="relative mt-7 overflow-hidden rounded-3xl border border-white/10 bg-[#101010] p-6 sm:p-8">
+          <div className="pointer-events-none absolute right-0 top-0 h-48 w-48 rounded-full bg-orange-500/[0.07] blur-[70px]" />
 
-          <div className="relative flex flex-col gap-6 p-6 sm:p-8 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-4 sm:gap-5">
-              <div className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-3xl font-black text-black shadow-xl shadow-orange-500/20 sm:h-24 sm:w-24 sm:text-4xl">
-                {user?.name
-                  ?.charAt(0)
-                  ?.toUpperCase() || "M"}
+          <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl border border-orange-500/20 bg-orange-500/10 text-orange-400">
+              <UserRound size={36} />
+            </div>
 
-                <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-4 border-zinc-950 bg-emerald-500 text-black">
-                  <Check size={13} strokeWidth={3} />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">
+                Member account
+              </p>
+
+              <h2 className="mt-2 break-words text-2xl font-black sm:text-3xl">
+                {profile?.name || "Gym Member"}
+              </h2>
+
+              <p className="mt-2 break-all text-sm text-zinc-400">
+                {profile?.email || "Email not available"}
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-1.5 text-xs font-bold text-emerald-400">
+                  <ShieldCheck size={13} />
+                  {profile?.isActive === false ? "Inactive" : "Account"}
                 </span>
-              </div>
 
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-2xl font-black sm:text-3xl">
-                    {user?.name || "Member"}
-                  </h2>
-
-                  {user?.isActive && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-400">
-                      <CheckCircle2 size={10} />
-                      Active
-                    </span>
-                  )}
-                </div>
-
-                <p className="mt-1 text-sm text-zinc-600">
-                  Gym Member
-                </p>
-
-                <p className="mt-2 text-xs text-zinc-700">
-                  Member since{" "}
-                  <span className="text-zinc-500">
-                    {formatDate(
-                      user?.createdAt
-                    )}
+                {profile?.role && (
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-bold capitalize text-zinc-400">
+                    {profile.role}
                   </span>
-                </p>
+                )}
               </div>
             </div>
 
@@ -340,94 +244,110 @@ export default function MemberProfilePage() {
               <button
                 type="button"
                 onClick={() => {
-                  setEditing(true);
                   setError("");
-                  setSuccess("");
+                  setMessage("");
+                  setEditing(true);
                 }}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black shadow-lg shadow-orange-500/10 transition hover:bg-orange-400 md:w-auto"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400"
               >
-                <Edit3 size={16} />
+                <Pencil size={15} />
                 Edit Profile
               </button>
             )}
           </div>
         </section>
 
-        {/* Profile Details */}
-        <section className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-xl shadow-black/20">
-          <div className="border-b border-white/10 p-6 sm:p-7">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 text-orange-400">
-                <User size={17} />
-              </div>
+        {/* Personal details */}
+        <section className="mt-6 rounded-3xl border border-white/10 bg-[#101010] p-5 sm:p-7">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.04] text-orange-400">
+              <UserRound size={20} />
+            </div>
 
-              <div>
-                <h2 className="font-black">
-                  Personal Information
-                </h2>
-
-                <p className="mt-1 text-xs text-zinc-700">
-                  Your basic account details.
-                </p>
-              </div>
+            <div>
+              <h2 className="text-xl font-black">Personal Information</h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                Keep your contact details up to date.
+              </p>
             </div>
           </div>
 
           {editing ? (
-            <form
-              onSubmit={handleSubmit}
-              className="p-6 sm:p-8"
-            >
-              <div className="grid gap-5 md:grid-cols-2">
-                <ProfileInput
-                  id="name"
-                  name="name"
-                  label="Full Name"
-                  icon={<User size={16} />}
-                  type="text"
-                  value={form.name}
-                  onChange={handleChange}
-                  required
-                  minLength={2}
-                  maxLength={100}
-                  autoComplete="name"
-                />
+            <form onSubmit={handleSave} className="mt-6">
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="name"
+                    className="text-sm font-semibold text-zinc-300"
+                  >
+                    Full name
+                  </label>
+                  <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    value={form.name}
+                    onChange={handleChange}
+                    className={inputClass}
+                    placeholder="Enter your full name"
+                    minLength={2}
+                    maxLength={80}
+                    required
+                  />
+                </div>
 
-                <ProfileInput
-                  id="email"
-                  name="email"
-                  label="Email Address"
-                  icon={<Mail size={16} />}
-                  type="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  required
-                  maxLength={150}
-                  autoComplete="email"
-                />
+                <div>
+                  <label
+                    htmlFor="email"
+                    className="text-sm font-semibold text-zinc-300"
+                  >
+                    Email address
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={profile?.email || ""}
+                    className={`${inputClass} cursor-not-allowed opacity-60`}
+                    disabled
+                    readOnly
+                  />
+                  <p className="mt-2 text-xs text-zinc-600">
+                    Email cannot be changed here.
+                  </p>
+                </div>
 
-                <ProfileInput
-                  id="phone"
-                  name="phone"
-                  label="Phone Number"
-                  icon={<Phone size={16} />}
-                  type="tel"
-                  value={form.phone}
-                  onChange={handleChange}
-                  required
-                  maxLength={10}
-                  pattern="[0-9]{10}"
-                  autoComplete="tel"
-                  helper="Enter exactly 10 digits."
-                />
+                <div className="sm:col-span-2">
+                  <label
+                    htmlFor="phone"
+                    className="text-sm font-semibold text-zinc-300"
+                  >
+                    Phone number
+                  </label>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={handleChange}
+                    className={inputClass}
+                    placeholder="Enter your phone number"
+                    maxLength={20}
+                  />
+                </div>
               </div>
 
-              <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  onClick={cancelEditing}
-                  disabled={saving}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900 px-5 py-3 text-sm font-bold text-zinc-400 transition hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+                  onClick={() => {
+                    setForm({
+                      name: profile?.name || "",
+                      phone: profile?.phone || "",
+                    });
+                    setEditing(false);
+                    setError("");
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 px-5 py-3 text-sm font-bold text-zinc-300 transition hover:border-white/20 hover:text-white"
                 >
                   <X size={16} />
                   Cancel
@@ -439,364 +359,135 @@ export default function MemberProfilePage() {
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? (
-                    <>
-                      <Loader2
-                        size={16}
-                        className="animate-spin"
-                      />
-                      Saving...
-                    </>
+                    <Loader2 size={16} className="animate-spin" />
                   ) : (
-                    <>
-                      <Check size={16} />
-                      Save Changes
-                    </>
+                    <Save size={16} />
                   )}
+                  {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
           ) : (
-            <div className="grid md:grid-cols-2">
-              <InfoCard
-                icon={<User size={17} />}
-                label="Full Name"
-                value={user?.name || "—"}
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <ProfileDetail
+                icon={<UserRound size={18} />}
+                label="Full name"
+                value={profile?.name || "Not provided"}
               />
 
-              <InfoCard
-                icon={<Mail size={17} />}
-                label="Email Address"
-                value={user?.email || "—"}
+              <ProfileDetail
+                icon={<Mail size={18} />}
+                label="Email address"
+                value={profile?.email || "Not provided"}
               />
 
-              <InfoCard
-                icon={<Phone size={17} />}
-                label="Phone Number"
-                value={user?.phone || "—"}
+              <ProfileDetail
+                icon={<Phone size={18} />}
+                label="Phone number"
+                value={profile?.phone || "Not provided"}
               />
 
-              <div className="border-b border-white/10 p-6 md:border-b-0 sm:p-8">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-700">
-                  Account Status
-                </p>
-
-                <div className="mt-3 flex items-center gap-2">
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      user?.isActive
-                        ? "bg-emerald-400 shadow-lg shadow-emerald-400/30"
-                        : "bg-red-400"
-                    }`}
-                  />
-
-                  <span
-                    className={`text-sm font-bold ${
-                      user?.isActive
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {user?.isActive
-                      ? "Active Account"
-                      : "Inactive Account"}
-                  </span>
-                </div>
-              </div>
+              <ProfileDetail
+                icon={<CalendarDays size={18} />}
+                label="Member since"
+                value={formatDate(profile?.createdAt)}
+              />
             </div>
           )}
         </section>
 
-        {/* Account Information */}
-        <section className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-xl shadow-black/20">
-          <div className="border-b border-white/10 p-6 sm:p-7">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 text-orange-400">
-                <ShieldCheck size={17} />
-              </div>
-
-              <div>
-                <h2 className="font-black">
-                  Account Information
-                </h2>
-
-                <p className="mt-1 text-xs text-zinc-700">
-                  Important details about your gym
-                  account.
-                </p>
-              </div>
-            </div>
+        {/* Member shortcuts */}
+        <section className="mt-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-black">Your Gym Services</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Jump directly to the information you need.
+            </p>
           </div>
 
-          <div className="grid md:grid-cols-2">
-            {/* Registration */}
-            <div className="border-b border-white/10 p-6 md:border-r sm:p-8">
-              <div className="flex items-center gap-2">
-                <Wallet
-                  size={15}
-                  className="text-orange-400"
-                />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ServiceCard
+              href="/member/membership"
+              icon={<Dumbbell size={21} />}
+              title="My Membership"
+              description="View your plan and membership details."
+            />
 
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-700">
-                  Registration Fee
-                </p>
-              </div>
+            <ServiceCard
+              href="/member/payments"
+              icon={<CreditCard size={21} />}
+              title="Payments"
+              description="Check your payment history and status."
+            />
 
-              <div className="mt-4 flex items-center gap-2">
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    user?.registrationFeePaid
-                      ? "bg-emerald-400"
-                      : "bg-amber-400"
-                  }`}
-                />
-
-                <span
-                  className={`text-sm font-bold ${
-                    user?.registrationFeePaid
-                      ? "text-emerald-400"
-                      : "text-amber-400"
-                  }`}
-                >
-                  {user?.registrationFeePaid
-                    ? "Paid"
-                    : "Not Paid"}
-                </span>
-              </div>
-
-              {user?.registrationFeePaidAt && (
-                <p className="mt-2 text-xs text-zinc-700">
-                  Paid on{" "}
-                  <span className="text-zinc-500">
-                    {formatDate(
-                      user.registrationFeePaidAt
-                    )}
-                  </span>
-                </p>
-              )}
-            </div>
-
-            {/* Joined */}
-            <div className="border-b border-white/10 p-6 sm:p-8">
-              <div className="flex items-center gap-2">
-                <CalendarDays
-                  size={15}
-                  className="text-orange-400"
-                />
-
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-700">
-                  Member Since
-                </p>
-              </div>
-
-              <p className="mt-4 text-base font-black text-zinc-300">
-                {formatDate(user?.createdAt)}
-              </p>
-            </div>
-
-            {/* Account Type */}
-            <div className="border-b border-white/10 p-6 md:border-b-0 md:border-r sm:p-8">
-              <div className="flex items-center gap-2">
-                <BadgeCheck
-                  size={15}
-                  className="text-orange-400"
-                />
-
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-700">
-                  Account Type
-                </p>
-              </div>
-
-              <p className="mt-4 text-base font-black capitalize text-zinc-300">
-                {user?.role || "Member"}
-              </p>
-            </div>
-
-            {/* Password */}
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-2">
-                <KeyRound
-                  size={15}
-                  className="text-orange-400"
-                />
-
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-700">
-                  Password
-                </p>
-              </div>
-
-              <p className="mt-3 text-sm leading-6 text-zinc-600">
-                Keep your password secure and never
-                share it with anyone.
-              </p>
-
-              <Link
-                href="/forgot-password"
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-bold text-orange-400 transition hover:text-orange-300"
-              >
-                Reset Password
-                <ArrowRight size={14} />
-              </Link>
-            </div>
+            <ServiceCard
+              href="/member/diet"
+              icon={<Salad size={21} />}
+              title="My Diet Plan"
+              description="Follow your meals and nutrition targets."
+            />
           </div>
         </section>
 
-        {/* Quick Links */}
-        <section className="mt-6 grid gap-4 sm:grid-cols-3">
-          <QuickLink
-            href="/member/membership/status"
-            icon={<Dumbbell size={18} />}
-            title="Membership"
-            description="View your current membership."
-          />
-
-          <QuickLink
-            href="/member/payments"
-            icon={<FileText size={18} />}
-            title="Payments"
-            description="View your payment history."
-          />
-
-          <QuickLink
-            href="/member/promotions"
-            icon={<Wallet size={18} />}
-            title="Offers"
-            description="Check available gym offers."
-          />
-        </section>
-
-        <div className="mt-8 flex items-center justify-center gap-2 pb-5 text-center text-[11px] text-zinc-800">
-          <ShieldCheck size={13} />
-          Your profile information is private and
-          protected.
-        </div>
+        <p className="mt-8 text-center text-xs leading-5 text-zinc-600">
+          Keep your account details accurate so the gym can contact you about
+          important membership updates.
+        </p>
       </div>
     </main>
   );
 }
 
-function ProfileInput({
-  id,
-  name,
-  label,
-  icon,
-  helper,
-  ...props
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={id}
-        className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-600"
-      >
-        <span className="text-orange-400">
-          {icon}
-        </span>
-        {label}
-      </label>
+function formatDate(value) {
+  if (!value) return "Not available";
 
-      <input
-        id={id}
-        name={name}
-        {...props}
-        className="w-full rounded-xl border border-white/10 bg-black px-4 py-3.5 text-sm font-medium text-white outline-none transition placeholder:text-zinc-800 focus:border-orange-500/40 focus:ring-1 focus:ring-orange-500/20"
-      />
+  const date = new Date(value);
 
-      {helper && (
-        <p className="mt-2 text-xs text-zinc-800">
-          {helper}
-        </p>
-      )}
-    </div>
-  );
+  if (Number.isNaN(date.getTime())) return "Not available";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function InfoCard({
-  icon,
-  label,
-  value,
-}) {
+function ProfileDetail({ icon, label, value }) {
   return (
-    <div className="border-b border-white/10 p-6 md:border-r sm:p-8">
-      <div className="flex items-center gap-2">
-        <span className="text-orange-400">
-          {icon}
-        </span>
-
-        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-700">
-          {label}
-        </p>
+    <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/[0.08] text-orange-400">
+        {icon}
       </div>
 
-      <p className="mt-3 break-all text-base font-bold text-zinc-300">
-        {value}
-      </p>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-zinc-500">{label}</p>
+        <p className="mt-1 break-words text-sm font-bold text-zinc-200">
+          {value}
+        </p>
+      </div>
     </div>
   );
 }
 
-function QuickLink({
-  href,
-  icon,
-  title,
-  description,
-}) {
+function ServiceCard({ href, icon, title, description }) {
   return (
     <Link
       href={href}
-      className="group relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 p-5 transition hover:-translate-y-0.5 hover:border-orange-500/20"
+      className="group rounded-2xl border border-white/[0.08] bg-[#101010] p-5 transition hover:-translate-y-0.5 hover:border-orange-500/30 hover:bg-[#14110e]"
     >
-      <div className="absolute right-[-30px] top-[-30px] h-20 w-20 rounded-full bg-orange-500/5 blur-2xl transition group-hover:bg-orange-500/10" />
-
-      <div className="relative">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 text-orange-400">
+      <div className="flex items-center justify-between">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-500/[0.08] text-orange-400 transition group-hover:bg-orange-500/15">
           {icon}
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-sm font-black">
-            {title}
-          </p>
-
-          <ArrowRight
-            size={15}
-            className="text-zinc-700 transition group-hover:translate-x-1 group-hover:text-orange-400"
-          />
-        </div>
-
-        <p className="mt-1 text-xs leading-5 text-zinc-700">
-          {description}
-        </p>
+        <ArrowRight
+          size={17}
+          className="text-zinc-600 transition group-hover:translate-x-1 group-hover:text-orange-400"
+        />
       </div>
+
+      <h3 className="mt-4 font-black">{title}</h3>
+      <p className="mt-2 text-sm leading-6 text-zinc-500">{description}</p>
     </Link>
-  );
-}
-
-function AmbientGlow() {
-  return (
-    <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden">
-      <div className="absolute left-1/2 top-[-280px] h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-orange-500/10 blur-[150px]" />
-
-      <div className="absolute bottom-[-220px] right-[-180px] h-[500px] w-[500px] rounded-full bg-orange-500/5 blur-[140px]" />
-    </div>
-  );
-}
-
-function LoadingScreen() {
-  return (
-    <main className="min-h-screen bg-[#050505] px-4 py-8 text-white sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl animate-pulse">
-        <div className="h-4 w-36 rounded bg-zinc-900" />
-
-        <div className="mt-7 h-12 w-72 rounded-xl bg-zinc-900" />
-
-        <div className="mt-3 h-4 w-96 max-w-full rounded bg-zinc-950" />
-
-        <div className="mt-8 h-36 rounded-3xl bg-zinc-950" />
-
-        <div className="mt-6 h-96 rounded-3xl bg-zinc-950" />
-
-        <div className="mt-6 h-72 rounded-3xl bg-zinc-950" />
-      </div>
-    </main>
   );
 }

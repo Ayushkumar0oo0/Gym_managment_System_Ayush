@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-
+import User from "@/models/User";
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
 import ProductOrder from "@/models/ProductOrder";
@@ -57,7 +57,40 @@ export async function GET(request, { params }) {
     // 4. Connect database
     // ------------------------------------
 
+    
+    // 4. Connect database
+
     await connectDB();
+
+    // 5. Check current account and membership access
+
+    const user = await User.findById(session.user.id)
+      .select("_id role isActive membershipAccessLocked")
+      .lean();
+
+    if (!user || user.role !== "member" || !user.isActive) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Your account is inactive or unavailable.",
+          code: "ACCOUNT_INACTIVE",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (user.membershipAccessLocked) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Your membership access is locked. Please renew your membership to view product orders.",
+          code: "MEMBERSHIP_ACCESS_LOCKED",
+        },
+        { status: 403 }
+      );
+    }
+
 
     // ------------------------------------
     // 5. Find order

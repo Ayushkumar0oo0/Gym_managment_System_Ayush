@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Check,
@@ -110,6 +111,8 @@ function FacebookIcon({ size = 19 }) {
 }
 
 export default function HomePage() {
+  const router = useRouter();
+const [checkingSession, setCheckingSession] = useState(true);
   const [settings, setSettings] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
   const [plans, setPlans] = useState([]);
@@ -121,6 +124,41 @@ export default function HomePage() {
   useEffect(() => {
     loadHomeData();
   }, []);
+  useEffect(() => {
+  let cancelled = false;
+
+  async function checkSession() {
+    try {
+      const response = await fetch("/api/auth/session", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) return;
+
+      const session = await response.json();
+
+      if (cancelled) return;
+
+      if (session?.user?.role === "admin") {
+        router.replace("/admin");
+      } else if (session?.user?.role === "member") {
+        router.replace("/member");
+      }
+    } catch (error) {
+      console.error("SESSION CHECK ERROR:", error);
+    } finally {
+      if (!cancelled) {
+        setCheckingSession(false);
+      }
+    }
+  }
+
+  checkSession();
+
+  return () => {
+    cancelled = true;
+  };
+}, [router]);
 
   async function loadHomeData() {
     try {
@@ -227,7 +265,7 @@ export default function HomePage() {
     [promotions.length]
   );
 
-  if (loading) {
+if (loading || checkingSession) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#050505] text-white">
         <div className="text-center">

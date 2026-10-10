@@ -303,34 +303,47 @@ export async function POST(request) {
     }
 
     // =======================================================
-    // 11. ALREADY PAID
-    // =======================================================
+   // =======================================================
+// 11. ALREADY PAID
+// =======================================================
 
-    if (payment.status === "paid") {
-      if (
-        payment.gatewayOrderId ===
-          cleanOrderId &&
-        payment.gatewayPaymentId ===
-          cleanGatewayPaymentId &&
-        payment.membership
-      ) {
-        return NextResponse.json({
-          success: true,
-          alreadyVerified: true,
-          message: isNewMembership
-            ? "This membership payment was already completed."
-            : "This renewal was already completed.",
-          membershipId:
-            payment.membership,
-        });
-      }
+if (payment.status === "paid") {
+  if (
+    payment.gatewayOrderId === cleanOrderId &&
+    payment.gatewayPaymentId === cleanGatewayPaymentId &&
+    payment.membership
+  ) {
+    // Recheck the current account status before returning success.
+    const currentUser = await User.findById(session.user.id)
+      .select("_id role isActive")
+      .lean();
 
+    if (
+      !currentUser ||
+      !currentUser.isActive ||
+      currentUser.role !== "member"
+    ) {
       return respond(
-        "This payment has already been completed.",
-        409
+        "Your account is inactive or unavailable.",
+        403
       );
     }
 
+    return NextResponse.json({
+      success: true,
+      alreadyVerified: true,
+      message: isNewMembership
+        ? "This membership payment was already completed."
+        : "This renewal was already completed.",
+      membershipId: payment.membership,
+    });
+  }
+
+  return respond(
+    "This payment has already been completed.",
+    409
+  );
+}
     // =======================================================
     // 12. PAYMENT MUST BE PENDING
     // =======================================================
@@ -676,14 +689,14 @@ export async function POST(request) {
           );
 
         if (
-          !user ||
-          !user.isActive ||
-          user.role !== "member"
-        ) {
-          throw new Error(
-            "Member account is not active."
-          );
-        }
+  !user ||
+  !user.isActive ||
+  user.role !== "member"
+) {
+  throw new Error(
+    "Member account is not active."
+  );
+}
 
         // ===================================================
         // LOAD PLAN
@@ -965,9 +978,16 @@ export async function POST(request) {
             null;
 
           await currentPayment.save({
-            session:
-              mongoSession,
-          });
+  session: mongoSession,
+});
+// Restore membership access after verified renewal.
+// Restore membership access after successful payment.
+user.membershipAccessLocked = false;
+
+await user.save({
+  session: mongoSession,
+});
+
 
           // -----------------------------------------------
           // RESULT
@@ -1259,6 +1279,13 @@ export async function POST(request) {
             session:
               mongoSession,
           });
+          // Restore membership access after successful renewal.
+// Do not change isActive; admin blocking remains separate.
+user.membershipAccessLocked = false;
+
+await user.save({
+  session: mongoSession,
+});
 
           // -----------------------------------------------
           // RESULT

@@ -38,7 +38,7 @@ async function getMember() {
   const user = await User.findById(
     session.user.id
   )
-    .select("_id name isActive")
+    .select("_id name isActive membershipAccessLocked")
     .lean();
 
   if (!user) {
@@ -64,7 +64,19 @@ async function getMember() {
       ),
     };
   }
-
+if (user.membershipAccessLocked) {
+  return {
+    error: NextResponse.json(
+      {
+        success: false,
+        message:
+          "Your membership access is locked. Please renew your membership to track diet progress.",
+        code: "MEMBERSHIP_ACCESS_LOCKED",
+      },
+      { status: 403 }
+    ),
+  };
+}
   return {
     user,
   };

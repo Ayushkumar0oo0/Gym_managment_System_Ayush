@@ -45,8 +45,9 @@ export default function LoginPage() {
         if (session?.user?.role === "admin") {
           router.replace("/admin");
         } else if (session?.user?.role === "member") {
-          router.replace("/dashboard");
-        }
+  router.replace("/member");
+  return;
+}
       } catch (error) {
         console.error("EXISTING SESSION CHECK ERROR:", error);
       } finally {
@@ -100,10 +101,10 @@ export default function LoginPage() {
       }
 
       if (role === "member") {
-        router.replace("/dashboard");
-        router.refresh();
-        return;
-      }
+  router.replace("/member");
+  router.refresh();
+  return;
+}
 
       setError("Your account role is not configured correctly.");
       setLoading(false);

@@ -587,6 +587,13 @@ export async function POST(request, { params }) {
       await payment.save({
         session: dbSession,
       });
+      // Unlock membership access after confirmed renewal.
+// Do not change isActive: admin blocking remains separate.
+user.membershipAccessLocked = false;
+
+await user.save({
+  session: dbSession,
+});
 
       /* ===================================================
          RESULT

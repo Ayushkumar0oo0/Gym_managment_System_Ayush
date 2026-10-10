@@ -40,8 +40,38 @@ export async function POST(request, { params }) {
       return errorResponse("Invalid product order ID.", 400);
     }
 
-    // 3. Connect to MongoDB.
-    await connectDB();
+
+// 3. Connect to MongoDB.
+await connectDB();
+
+// 4. Verify the current account and membership access.
+const user = await User.findById(session.user.id)
+  .select("_id role isActive membershipAccessLocked")
+  .lean();
+
+if (!user || user.role !== "member" || !user.isActive) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
+
+if (user.membershipAccessLocked) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        "Your membership access is locked. Please renew your membership to purchase products.",
+      code: "MEMBERSHIP_ACCESS_LOCKED",
+    },
+    { status: 403 }
+  );
+}
+
 
     // 4. Find only the member's order.
     const order = await ProductOrder.findOne({

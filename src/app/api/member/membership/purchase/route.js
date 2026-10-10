@@ -223,15 +223,16 @@ export async function POST(request) {
     // 11. VERIFY USER IS ACTIVE
     // =========================================================
 
-    if (user.isActive === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Your account is inactive.",
-        },
-        { status: 403 }
-      );
-    }
+    if (!user.isActive || user.role !== "member") {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
     // =========================================================
     // 12. CHECK CURRENT MEMBERSHIP

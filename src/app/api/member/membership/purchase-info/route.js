@@ -52,8 +52,8 @@ export async function GET() {
     const user = await User.findById(
       session.user.id
     ).select(
-      "name email phone registrationFeePaid registrationFeePaidAt isActive"
-    );
+  "name email phone registrationFeePaid registrationFeePaidAt isActive role"
+);
 
     if (!user) {
       return NextResponse.json(
@@ -65,15 +65,16 @@ export async function GET() {
       );
     }
 
-    if (!user.isActive) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Your account is inactive.",
-        },
-        { status: 403 }
-      );
-    }
+    if (!user.isActive || user.role !== "member") {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
     // ==========================================
     // CHECK ACTIVE MEMBERSHIP

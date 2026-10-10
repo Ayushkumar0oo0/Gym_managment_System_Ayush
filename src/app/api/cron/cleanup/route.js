@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 
 import { connectDB } from "@/lib/mongodb";
@@ -15,8 +16,12 @@ export async function GET(request) {
 
     if (!expectedSecret) {
       console.error("CRON_SECRET is not configured.");
+
       return NextResponse.json(
-        { success: false, message: "Cron secret is not configured." },
+        {
+          success: false,
+          message: "Cron secret is not configured.",
+        },
         { status: 500 }
       );
     }
@@ -45,8 +50,11 @@ export async function GET(request) {
     });
 
     // ---------------------------------------------------------
-    // 2. Find active members whose latest membership
-    //    expired more than 90 days ago
+    // 2. Find active accounts whose latest membership
+    //    expired more than 90 days ago.
+    //
+    // Do not set isActive to false here. That field is reserved
+    // for account activation/admin blocking.
     // ---------------------------------------------------------
 
     const inactiveCutoff = new Date(
@@ -56,28 +64,26 @@ export async function GET(request) {
     const activeMembers = await User.find({
       role: "member",
       isActive: true,
+      membershipAccessLocked: { $ne: true },
     })
       .select("_id")
       .lean();
 
     const memberIds = activeMembers.map((member) => member._id);
 
-    let latestMemberships = [];
+    let lockedMemberIds = [];
 
     if (memberIds.length > 0) {
-      // Memberships where the user is the primary member
+      // Memberships where the user is the primary member.
       const primaryMemberships = await Membership.aggregate([
         {
           $match: {
             user: { $in: memberIds },
             endDate: { $ne: null },
+            endDate: { $exists: true },
           },
         },
-        {
-          $sort: {
-            endDate: -1,
-          },
-        },
+        { $sort: { endDate: -1 } },
         {
           $group: {
             _id: "$user",
@@ -86,19 +92,16 @@ export async function GET(request) {
         },
       ]);
 
-      // Memberships where the user is the secondary/couple member
+      // Memberships where the user is a secondary/couple member.
       const secondaryMemberships = await Membership.aggregate([
         {
           $match: {
             secondaryUser: { $in: memberIds },
             endDate: { $ne: null },
+            endDate: { $exists: true },
           },
         },
-        {
-          $sort: {
-            endDate: -1,
-          },
-        },
+        { $sort: { endDate: -1 } },
         {
           $group: {
             _id: "$secondaryUser",
@@ -107,7 +110,7 @@ export async function GET(request) {
         },
       ]);
 
-      // Keep the newest membership date for each member.
+      // Keep the newest end date for each member.
       const latestByUser = new Map();
 
       for (const membership of primaryMemberships) {
@@ -127,27 +130,31 @@ export async function GET(request) {
         }
       }
 
-      latestMemberships = Array.from(latestByUser.entries())
+      lockedMemberIds = Array.from(latestByUser.entries())
         .filter(([, latestEndDate]) => latestEndDate <= inactiveCutoff)
         .map(([userId]) => userId);
     }
 
     // ---------------------------------------------------------
-    // 3. Mark old members inactive
+    // 3. Lock membership access without blocking login.
+    //
+    // Only lock accounts that are still active and have not
+    // already been locked by this membership-expiry process.
     // ---------------------------------------------------------
 
-    let inactiveMemberResult = { modifiedCount: 0 };
+    let lockResult = { modifiedCount: 0 };
 
-    if (latestMemberships.length > 0) {
-      inactiveMemberResult = await User.updateMany(
+    if (lockedMemberIds.length > 0) {
+      lockResult = await User.updateMany(
         {
-          _id: { $in: latestMemberships },
+          _id: { $in: lockedMemberIds },
           role: "member",
           isActive: true,
+          membershipAccessLocked: { $ne: true },
         },
         {
           $set: {
-            isActive: false,
+            membershipAccessLocked: true,
           },
         }
       );
@@ -162,9 +169,9 @@ export async function GET(request) {
       message: "Cleanup completed successfully.",
       cleanup: {
         feedbackDeleted: feedbackDeleteResult.deletedCount,
-        membersMarkedInactive: inactiveMemberResult.modifiedCount,
+        membersLocked: lockResult.modifiedCount,
         feedbackOlderThanDays: 14,
-        inactiveAfterMembershipExpiryDays: 90,
+        membershipAccessLockedAfterExpiryDays: 90,
       },
     });
   } catch (error) {

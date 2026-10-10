@@ -564,13 +564,10 @@ export async function POST(request, { params }) {
         const paymentNotes =
           payment.notes || "";
 
-        const registrationFeeIncluded =
-          paymentNotes.includes(
-            "₹500 registration fee"
-          );
+       
 
-        const registrationFeeIncluded =
-  Number(payment.amount) === planPrice + REGISTRATION_FEE;
+       const registrationFeeIncluded =
+  Number(payment.amount) === planPrice + registrationFee;
 
 const registrationFee = registrationFeeIncluded
   ? REGISTRATION_FEE

@@ -51,9 +51,9 @@ export async function GET() {
     // FIND CURRENT USER
     // ==========================================
 
-    const user = await User.findById(session.user.id)
-      .select("gender isActive email")
-      .lean();
+ const user = await User.findById(session.user.id)
+  .select("gender isActive email role")
+  .lean();
 
     console.log("DATABASE USER:", user);
 
@@ -67,15 +67,16 @@ export async function GET() {
       );
     }
 
-    if (!user.isActive) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Your account is inactive.",
-        },
-        { status: 403 }
-      );
-    }
+    if (!user.isActive || user.role !== "member") {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
     // ==========================================
     // DEBUG: GET ALL ACTIVE PLANS

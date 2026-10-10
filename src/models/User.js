@@ -39,9 +39,24 @@ const userSchema = new mongoose.Schema(
       default: "member",
     },
 
+    // Account access controlled by the admin
     isActive: {
       type: Boolean,
       default: true,
+    },
+
+    // Set when membership access is locked due to expiry.
+    // This must not be used for admin-blocked accounts.
+    membershipAccessLocked: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Increment to invalidate existing login sessions
+    sessionVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     sessionVersion: {
   type: Number,

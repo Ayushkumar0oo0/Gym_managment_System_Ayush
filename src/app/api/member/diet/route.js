@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
@@ -36,7 +37,9 @@ async function getAuthenticatedMember() {
   await connectDB();
 
   const user = await User.findById(session.user.id)
-    .select("_id name email role isActive")
+    .select(
+      "_id name email role isActive membershipAccessLocked"
+    )
     .lean();
 
   if (!user) {
@@ -51,21 +54,36 @@ async function getAuthenticatedMember() {
     };
   }
 
+  // Block accounts disabled by the admin.
   if (!user.isActive) {
     return {
       error: NextResponse.json(
         {
           success: false,
           message: "Your account is inactive.",
+          code: "ACCOUNT_INACTIVE",
         },
         { status: 403 }
       ),
     };
   }
 
-  return {
-    user,
-  };
+  // Block diet planner access when membership access is locked.
+  if (user.membershipAccessLocked) {
+    return {
+      error: NextResponse.json(
+        {
+          success: false,
+          message:
+            "Your membership access is locked. Please renew your membership to use the diet planner.",
+          code: "MEMBERSHIP_ACCESS_LOCKED",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user };
 }
 
 async function getProfile(userId) {
@@ -92,70 +110,52 @@ async function getProgress(userId, dietProfileId) {
 
 export async function GET() {
   try {
-    const member =
-      await getAuthenticatedMember();
+    const member = await getAuthenticatedMember();
 
     if (member.error) {
       return member.error;
     }
 
-    const profile =
-      await getProfile(
-        member.user._id
-      );
+    const profile = await getProfile(member.user._id);
 
     if (!profile) {
-      return NextResponse.json(
-        {
-          success: true,
-          dietProfile: null,
-          dietPlan: null,
-          message:
-            "Please create your diet profile first.",
-        }
-      );
+      return NextResponse.json({
+        success: true,
+        dietProfile: null,
+        dietPlan: null,
+        message: "Please create your diet profile first.",
+      });
     }
 
-    const progress =
-      await getProgress(
-        member.user._id,
-        profile._id
-      );
+    const progress = await getProgress(
+      member.user._id,
+      profile._id
+    );
 
-    const dietPlan =
-      generateDietPlan({
-        profile,
-        progress,
-      });
+    const dietPlan = generateDietPlan({
+      profile,
+      progress,
+    });
 
     return NextResponse.json({
       success: true,
-
       dietProfile: profile,
-
       dietPlan,
-
       progress: {
         count: progress.length,
         latest:
           progress.length > 0
-            ? progress[
-                progress.length - 1
-              ]
+            ? progress[progress.length - 1]
             : null,
       },
     });
   } catch (error) {
-    console.error(
-      "MEMBER DIET GET ERROR:",
-      error
-    );
+    console.error("MEMBER DIET GET ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          "Failed to generate your diet.",
+        message: "Failed to generate your diet.",
       },
       { status: 500 }
     );
@@ -170,25 +170,22 @@ export async function GET() {
 
 export async function POST() {
   try {
-    const member =
-      await getAuthenticatedMember();
+    const member = await getAuthenticatedMember();
 
     if (member.error) {
       return member.error;
     }
 
-    const profile =
-      await DietProfile.findOne({
-        user: member.user._id,
-        isActive: true,
-      });
+    const profile = await DietProfile.findOne({
+      user: member.user._id,
+      isActive: true,
+    });
 
     if (!profile) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Please create your diet profile first.",
+          message: "Please create your diet profile first.",
         },
         { status: 400 }
       );
@@ -200,24 +197,15 @@ export async function POST() {
      */
 
     const now = new Date();
+    const startDate = new Date(profile.dietStartDate);
 
-    const startDate =
-      new Date(
-        profile.dietStartDate
-      );
-
-    const elapsedDays =
-      Math.max(
-        0,
-        Math.floor(
-          (now.getTime() -
-            startDate.getTime()) /
-            (1000 *
-              60 *
-              60 *
-              24)
-        )
-      );
+    const elapsedDays = Math.max(
+      0,
+      Math.floor(
+        (now.getTime() - startDate.getTime()) /
+          (1000 * 60 * 60 * 24)
+      )
+    );
 
     let phase = 1;
 
@@ -227,46 +215,33 @@ export async function POST() {
       phase = 2;
     }
 
-    profile.currentPhase =
-      phase;
+    profile.currentPhase = phase;
 
     await profile.save();
 
-    const progress =
-      await getProgress(
-        member.user._id,
-        profile._id
-      );
+    const progress = await getProgress(
+      member.user._id,
+      profile._id
+    );
 
-    const dietPlan =
-      generateDietPlan({
-        profile:
-          profile.toObject(),
-        progress,
-      });
+    const dietPlan = generateDietPlan({
+      profile: profile.toObject(),
+      progress,
+    });
 
     return NextResponse.json({
       success: true,
-
-      message:
-        "Diet generated successfully.",
-
+      message: "Diet generated successfully.",
       dietPlan,
-
-      dietProfile:
-        profile.toObject(),
+      dietProfile: profile.toObject(),
     });
   } catch (error) {
-    console.error(
-      "MEMBER DIET GENERATE ERROR:",
-      error
-    );
+    console.error("MEMBER DIET GENERATE ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          "Failed to generate your diet.",
+        message: "Failed to generate your diet.",
       },
       { status: 500 }
     );

@@ -69,6 +69,7 @@ export async function GET(request, { params }) {
           "email",
           "phone",
           "isActive",
+          "membershipAccessLocked",
           "createdAt",
           "registrationFeePaid",
           "registrationFeePaidAt",
@@ -198,8 +199,9 @@ export async function GET(request, { params }) {
         name: member.name,
         email: member.email,
         phone: member.phone,
-        isActive: member.isActive,
-        createdAt: member.createdAt,
+       isActive: member.isActive,
+membershipAccessLocked: member.membershipAccessLocked,
+createdAt: member.createdAt,
 
         registration: {
           paid: member.registrationFeePaid,

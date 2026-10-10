@@ -31,20 +31,21 @@ export async function GET() {
     await connectDB();
 
     const user = await User.findById(session.user.id)
-      .select(
-        "name email phone role isActive registrationFeePaid registrationFeePaidAt createdAt"
-      )
+     .select(
+  "name email phone role isActive membershipAccessLocked registrationFeePaid registrationFeePaidAt createdAt"
+)
       .lean();
 
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "User not found.",
-        },
-        { status: 404 }
-      );
-    }
+    if (user.role !== "member" || !user.isActive) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
     return NextResponse.json(
       {
@@ -150,8 +151,7 @@ export async function PATCH(request) {
       );
     }
 
-    const emailRegex =
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(email)) {
       return NextResponse.json(
@@ -174,24 +174,28 @@ export async function PATCH(request) {
       );
     }
 
-    await connectDB();
+   await connectDB();
 
-    const duplicateEmail = await User.findOne({
-      email,
-      _id: {
-        $ne: session.user.id,
-      },
-    }).lean();
+// Verify the current account before allowing profile changes.
+const currentUser = await User.findById(session.user.id)
+  .select("_id role isActive")
+  .lean();
 
-    if (duplicateEmail) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Email is already in use.",
-        },
-        { status: 409 }
-      );
-    }
+if (
+  !currentUser ||
+  currentUser.role !== "member" ||
+  !currentUser.isActive
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
+
 
     const duplicatePhone = await User.findOne({
       phone,
@@ -224,9 +228,9 @@ export async function PATCH(request) {
         runValidators: true,
       }
     )
-      .select(
-        "name email phone role isActive registrationFeePaid registrationFeePaidAt createdAt"
-      )
+     .select(
+  "name email phone role isActive membershipAccessLocked registrationFeePaid registrationFeePaidAt createdAt"
+)
       .lean();
 
     if (!user) {

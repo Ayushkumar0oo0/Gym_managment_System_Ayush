@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import User from "@/models/User";
 import { connectDB } from "@/lib/mongodb";
 import Feedback from "@/models/Feedback";
 
@@ -15,6 +16,46 @@ const ALLOWED_CATEGORIES = [
 ];
 
 const MAX_SUBMISSIONS_PER_DAY = 5;
+async function checkMemberAccess(userId) {
+  const user = await User.findById(userId)
+    .select("_id role isActive membershipAccessLocked")
+    .lean();
+
+  if (!user) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Member account not found.",
+      },
+      { status: 404 }
+    );
+  }
+
+  if (!user.isActive) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Your account is inactive.",
+        code: "ACCOUNT_INACTIVE",
+      },
+      { status: 403 }
+    );
+  }
+
+  if (user.membershipAccessLocked) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Your membership access is locked. Please renew your membership to use feedback.",
+        code: "MEMBERSHIP_ACCESS_LOCKED",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
 
 export async function POST(request) {
   try {
@@ -42,7 +83,13 @@ export async function POST(request) {
 
     await connectDB();
 
-    const body = await request.json();
+const accessError = await checkMemberAccess(session.user.id);
+
+if (accessError) {
+  return accessError;
+}
+
+const body = await request.json();
 
     const category = String(body.category || "").trim();
     const subject = String(body.subject || "").trim();
@@ -191,9 +238,15 @@ export async function GET() {
 
     await connectDB();
 
-    const feedback = await Feedback.find({
-      user: session.user.id,
-    })
+const accessError = await checkMemberAccess(session.user.id);
+
+if (accessError) {
+  return accessError;
+}
+
+const feedback = await Feedback.find({
+  user: session.user.id,
+})
       .sort({ createdAt: -1 })
       .select(
         "category subject message productName status adminNote createdAt reviewedAt resolvedAt"

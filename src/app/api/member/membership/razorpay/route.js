@@ -252,10 +252,9 @@ export async function POST(request) {
     // 13. USER
     // =========================================================
 
-    const user = await User.findById(session.user.id).select(
-      "name email phone gender isActive"
-    );
-
+   const user = await User.findById(session.user.id).select(
+  "name email phone gender isActive role"
+);
     if (!user) {
       return NextResponse.json(
         {
@@ -265,16 +264,16 @@ export async function POST(request) {
         { status: 404 }
       );
     }
-
-    if (!user.isActive) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Your account is inactive.",
-        },
-        { status: 403 }
-      );
-    }
+if (!user.isActive || user.role !== "member") {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
     // =========================================================
     // 14. MEMBERSHIP-SPECIFIC VALIDATION

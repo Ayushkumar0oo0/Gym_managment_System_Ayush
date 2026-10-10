@@ -548,13 +548,13 @@ export async function GET() {
      */
 
     const user =
-      await User.findById(
-        session.user.id
-      )
-        .select(
-          "_id name email gender isActive"
-        )
-        .lean();
+  await User.findById(
+    session.user.id
+  )
+    .select(
+      "_id name email gender isActive membershipAccessLocked"
+    )
+    .lean();
 
     if (!user) {
       return NextResponse.json(
@@ -577,6 +577,17 @@ export async function GET() {
         { status: 403 }
       );
     }
+    if (user.membershipAccessLocked) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        "Your membership access is locked. Please renew your membership to download diet charts.",
+      code: "MEMBERSHIP_ACCESS_LOCKED",
+    },
+    { status: 403 }
+  );
+}
 
     /*
      * --------------------------------------------------

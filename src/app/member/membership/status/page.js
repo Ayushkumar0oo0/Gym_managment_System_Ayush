@@ -1,26 +1,255 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  Check,
+  ArrowRight,
+  BadgeCheck,
+  CalendarDays,
   CheckCircle2,
   Clock3,
   CreditCard,
+  Crown,
   Dumbbell,
   History,
   Loader2,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
   Wallet,
   XCircle,
-  CalendarDays,
-  UserRound,
-  BadgeIndianRupee,
-  ChevronRight,
 } from "lucide-react";
+
+const STATUS_API = "/api/member/membership/status";
+
+function money(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getStatusStyles(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "active":
+    case "paid":
+    case "success":
+    case "completed":
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-400";
+
+    case "pending":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-400";
+
+    case "expired":
+    case "failed":
+    case "cancelled":
+      return "border-red-500/20 bg-red-500/10 text-red-400";
+
+    case "upcoming":
+      return "border-blue-500/20 bg-blue-500/10 text-blue-400";
+
+    default:
+      return "border-white/10 bg-white/5 text-zinc-400";
+  }
+}
+
+function StatusBadge({ status }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold capitalize ${getStatusStyles(
+        status
+      )}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {status || "Unknown"}
+    </span>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, description }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#111111] p-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-zinc-400">{label}</p>
+        <div className="rounded-xl bg-orange-500/10 p-2.5 text-orange-400">
+          <Icon size={19} />
+        </div>
+      </div>
+
+      <p className="mt-4 break-words text-2xl font-black text-white">
+        {value}
+      </p>
+
+      {description && (
+        <p className="mt-2 text-xs leading-5 text-zinc-500">
+          {description}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, description }) {
+  return (
+    <div className="px-5 py-10 text-center sm:px-8">
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-zinc-400">
+        <Icon size={25} />
+      </div>
+
+      <h3 className="mt-4 font-bold text-white">{title}</h3>
+
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-500">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function PaymentRow({ payment }) {
+  const status = String(payment.status || "unknown").toLowerCase();
+
+  const StatusIcon =
+    status === "paid" || status === "success"
+      ? CheckCircle2
+      : status === "failed"
+        ? XCircle
+        : Clock3;
+
+  return (
+    <div className="flex flex-col gap-4 border-b border-white/[0.07] px-5 py-5 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-zinc-300">
+          <CreditCard size={19} />
+        </div>
+
+        <div className="min-w-0">
+          <p className="font-semibold capitalize text-white">
+            {String(payment.paymentType || "Payment").replaceAll("_", " ")}
+          </p>
+
+          <p className="mt-1 text-sm text-zinc-500">
+            {formatDateTime(payment.createdAt)}
+          </p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs capitalize text-zinc-400">
+              Method: {payment.method || "—"}
+            </span>
+
+            {payment.transactionId && (
+              <span className="max-w-48 truncate rounded-md bg-white/5 px-2 py-1 text-xs text-zinc-500">
+                Ref: {payment.transactionId}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end">
+        <p className="text-lg font-black text-white">
+          {money(payment.amount)}
+        </p>
+
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${getStatusStyles(
+            payment.status
+          )}`}
+        >
+          <StatusIcon size={13} />
+          {payment.status || "Unknown"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ExtensionRow({ extension, index }) {
+  const days =
+    extension.daysAdded ??
+    extension.extensionDays ??
+    extension.days ??
+    null;
+
+  return (
+    <div className="flex items-start gap-3 py-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-orange-500/20 bg-orange-500/10 text-orange-400">
+        <CalendarDays size={19} />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-white">
+          Membership extension
+        </p>
+
+        <p className="mt-1 text-sm text-zinc-500">
+          {formatDate(
+            extension.createdAt ||
+              extension.extendedAt ||
+              extension.date
+          )}
+        </p>
+
+        {extension.reason && (
+          <p className="mt-1 text-sm leading-5 text-zinc-400">
+            {extension.reason}
+          </p>
+        )}
+
+        {extension.notes && (
+          <p className="mt-1 text-sm leading-5 text-zinc-400">
+            {extension.notes}
+          </p>
+        )}
+      </div>
+
+      <div className="shrink-0 text-right">
+        {days !== null && days !== undefined && (
+          <p className="font-bold text-orange-400">
+            +{days} days
+          </p>
+        )}
+
+        {extension.endDate && (
+          <p className="mt-1 text-xs text-zinc-500">
+            Ends {formatDate(extension.endDate)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function MembershipStatusPage() {
   const router = useRouter();
@@ -31,775 +260,584 @@ export default function MembershipStatusPage() {
   const [payments, setPayments] = useState([]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    loadMembershipStatus();
-  }, []);
-
-  async function loadMembershipStatus() {
+  const loadStatus = useCallback(async (isRefresh = false) => {
     try {
-      setLoading(true);
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
       setError("");
 
-      const response = await fetch(
-        "/api/member/membership/status",
-        {
-          cache: "no-store",
-        }
-      );
+      const response = await fetch(STATUS_API, {
+        method: "GET",
+        cache: "no-store",
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.message || "Failed to load membership status."
+          data.message || "Unable to load membership status."
         );
       }
 
       setMembership(data.membership || null);
       setPendingRenewal(data.pendingRenewal || null);
       setPendingExtension(data.pendingExtension || null);
-      setPayments(data.payments || []);
+      setPayments(Array.isArray(data.payments) ? data.payments : []);
     } catch (err) {
       console.error("Membership status error:", err);
-
       setError(
-        err.message || "Failed to load membership status."
+        err.message || "Something went wrong while loading your status."
       );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }
+  }, []);
 
-  function formatPrice(amount) {
-    return Number(amount || 0).toLocaleString("en-IN");
-  }
-
-  function formatDate(date) {
-    if (!date) return "-";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "-";
-    }
-
-    return parsedDate.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
-
-  function formatDateTime(date) {
-    if (!date) return "-";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "-";
-    }
-
-    return parsedDate.toLocaleString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function getStatusText() {
-    if (!membership) {
-      return "No Membership";
-    }
-
-    return membership.status || "unknown";
-  }
-
-  function getStatusClasses() {
-    if (!membership) {
-      return "border-zinc-700 bg-zinc-900 text-zinc-300";
-    }
-
-    if (membership.status === "active") {
-      return "border-orange-500/30 bg-orange-500/10 text-orange-400";
-    }
-
-    if (
-      membership.status === "expired" ||
-      membership.status === "cancelled"
-    ) {
-      return "border-red-500/30 bg-red-500/10 text-red-400";
-    }
-
-    return "border-yellow-500/30 bg-yellow-500/10 text-yellow-400";
-  }
-
-  function getPaymentStatusClasses(status) {
-    if (status === "paid") {
-      return "text-emerald-400";
-    }
-
-    if (status === "pending") {
-      return "text-yellow-400";
-    }
-
-    if (status === "failed") {
-      return "text-red-400";
-    }
-
-    if (status === "refunded") {
-      return "text-blue-400";
-    }
-
-    return "text-zinc-400";
-  }
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#050505] px-4 py-6 text-white sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl animate-pulse">
-          <div className="h-4 w-36 rounded bg-zinc-900" />
-          <div className="mt-6 h-12 w-80 rounded-xl bg-zinc-900" />
-          <div className="mt-3 h-4 w-[28rem] max-w-full rounded bg-zinc-950" />
-
-          <div className="mt-8 h-72 rounded-3xl bg-zinc-950" />
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[1, 2, 3, 4].map((item) => (
-              <div
-                key={item}
-                className="h-32 rounded-3xl bg-zinc-950"
-              />
-            ))}
+      <main className="flex min-h-screen items-center justify-center bg-[#080808] px-5 text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4">
+            <Loader2 className="h-8 w-8 animate-spin text-orange-400" />
           </div>
 
-          <div className="mt-6 h-56 rounded-3xl bg-zinc-950" />
+          <p className="text-sm text-zinc-400">
+            Loading membership status…
+          </p>
         </div>
       </main>
     );
   }
 
+  const isActive = membership?.status === "active";
+  const isExpired = membership?.status === "expired";
+  const isUpcoming = membership?.status === "upcoming";
+
+  const remainingDays = Number(membership?.remainingDays);
+  const hasRemainingDays = Number.isFinite(remainingDays);
+
+  const progress =
+    hasRemainingDays && Number(membership?.plan?.durationInDays) > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            (remainingDays / Number(membership.plan.durationInDays)) *
+              100
+          )
+        )
+      : null;
+
+  const extensions = Array.isArray(membership?.extensions)
+    ? membership.extensions
+    : [];
+
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#050505] px-4 py-6 text-white sm:px-6 sm:py-8 lg:px-8">
-      {/* Ambient background */}
-      <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden">
-        <div className="absolute left-1/2 top-[-260px] h-[540px] w-[540px] -translate-x-1/2 rounded-full bg-orange-500/10 blur-[150px]" />
-        <div className="absolute bottom-[-240px] right-[-150px] h-[440px] w-[440px] rounded-full bg-orange-500/5 blur-[130px]" />
-      </div>
+    <main className="min-h-screen bg-[#080808] px-4 py-6 text-white sm:px-6 lg:px-8 lg:py-10">
+      <div className="mx-auto max-w-7xl">
+        <button
+          type="button"
+          onClick={() => router.push("/member")}
+          className="mb-7 inline-flex items-center gap-2 text-sm text-zinc-400 transition hover:text-white"
+        >
+          <ArrowLeft size={17} />
+          Back to dashboard
+        </button>
 
-      <div className="relative z-10 mx-auto max-w-7xl">
-        {/* Header */}
-        <header className="mb-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <header className="relative mb-8 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#20140d] via-[#121110] to-[#0a0a0a] p-6 sm:p-9 lg:p-11">
+          <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-orange-500/10 blur-3xl" />
+
+          <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
             <div>
-              <button
-                type="button"
-                onClick={() => router.push("/member")}
-                className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 transition hover:text-orange-400"
-              >
-                <ArrowLeft size={15} />
-                Back to Dashboard
-              </button>
-
-              <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-orange-400">
-                <ShieldCheck size={13} />
-                Membership
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-orange-300">
+                <ShieldCheck size={14} />
+                Membership center
               </div>
 
-              <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl lg:text-5xl">
-                Membership{" "}
-                <span className="text-orange-500">Status</span>
+              <h1 className="text-3xl font-black tracking-tight sm:text-5xl">
+                Membership
+                <span className="block text-orange-500">status</span>
               </h1>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-500 sm:text-base">
-                View your current membership, remaining days,
-                payments and renewal information.
+              <p className="mt-4 max-w-xl text-sm leading-7 text-zinc-400 sm:text-base">
+                Check your membership validity, track extensions, and
+                review your payment history in one place.
               </p>
+            </div>
+
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center self-start rounded-3xl border border-orange-500/20 bg-orange-500/10 sm:self-center">
+              <Crown className="h-10 w-10 text-orange-400" />
+            </div>
+          </div>
+        </header>
+
+        {error && (
+          <div
+            role="alert"
+            className="mb-6 flex flex-col gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-3 text-sm leading-6 text-red-300">
+              <XCircle size={19} className="mt-0.5 shrink-0" />
+              {error}
             </div>
 
             <button
               type="button"
-              onClick={loadMembershipStatus}
-              disabled={loading}
-              className="inline-flex w-fit items-center gap-2 rounded-xl border border-white/10 bg-zinc-950 px-4 py-2.5 text-sm font-bold text-zinc-400 transition hover:border-orange-500/30 hover:text-orange-400 disabled:opacity-50"
+              onClick={() => loadStatus(true)}
+              className="shrink-0 rounded-xl border border-red-400/20 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10"
             >
-              <RefreshCw size={15} />
-              Refresh
+              Try again
             </button>
           </div>
-        </header>
-
-        {/* Error */}
-        {error && (
-          <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-5">
-            <div className="flex gap-3">
-              <XCircle
-                size={20}
-                className="mt-0.5 shrink-0 text-red-400"
-              />
-
-              <div>
-                <p className="font-bold text-red-400">
-                  Something went wrong
-                </p>
-
-                <p className="mt-1 text-sm leading-6 text-red-300/70">
-                  {error}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={loadMembershipStatus}
-                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-bold text-red-300 transition hover:bg-red-500/20"
-                >
-                  <RefreshCw size={14} />
-                  Try Again
-                </button>
-              </div>
-            </div>
-          </div>
         )}
 
-        {/* No Membership */}
-        {!membership && !error && (
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 p-8 text-center shadow-2xl shadow-black/20 sm:p-14">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl border border-orange-500/20 bg-orange-500/10 text-orange-400">
-              <Dumbbell size={34} />
-            </div>
-
-            <div className="mx-auto mt-6 max-w-xl">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-500">
-                Start Your Journey
-              </div>
-
-              <h2 className="mt-2 text-2xl font-black sm:text-3xl">
-                No Active Membership
-              </h2>
-
-              <p className="mt-3 text-sm leading-6 text-zinc-500">
-                You currently do not have a membership. Choose a
-                membership plan and start your training journey with
-                us.
-              </p>
-
-              <button
-                type="button"
-                onClick={() =>
-                  router.push("/membership/purchase")
-                }
-                className="mt-7 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-6 py-3.5 text-sm font-black text-black shadow-lg shadow-orange-500/20 transition hover:bg-orange-400"
-              >
-                Get Membership
-                <ChevronRight size={16} />
-              </button>
-            </div>
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold">Overview</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Your current membership details
+            </p>
           </div>
-        )}
 
-        {membership && (
+          <button
+            type="button"
+            onClick={() => loadStatus(true)}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-semibold text-zinc-300 transition hover:border-white/20 hover:text-white disabled:opacity-50"
+          >
+            <RefreshCw
+              size={16}
+              className={refreshing ? "animate-spin" : ""}
+            />
+            Refresh status
+          </button>
+        </div>
+
+        {membership ? (
           <>
-            {/* Membership Hero Card */}
-            <section className="relative overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/[0.10] via-zinc-950 to-zinc-950 shadow-2xl shadow-black/30">
-              <div className="absolute right-[-100px] top-[-120px] h-80 w-80 rounded-full bg-orange-500/10 blur-[100px]" />
-
-              <div className="relative p-5 sm:p-7 lg:p-8">
-                <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-start">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 text-black shadow-lg shadow-orange-500/20">
-                        <Dumbbell size={22} />
-                      </div>
-
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-400">
-                          Current Membership
-                        </p>
-
-                        <h2 className="mt-1 text-2xl font-black sm:text-3xl">
-                          {membership.plan?.name ||
-                            "Membership"}
-                        </h2>
-                      </div>
+            <section className="mb-8 overflow-hidden rounded-3xl border border-white/10 bg-[#111111]">
+              <div className="border-b border-white/10 bg-gradient-to-r from-orange-500/[0.08] to-transparent p-5 sm:p-8">
+                <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-3.5">
+                      <Dumbbell className="h-7 w-7 text-orange-400" />
                     </div>
 
-                    {membership.membershipType && (
-                      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-bold capitalize text-zinc-400">
-                        <UserRound size={12} />
-                        {membership.membershipType} membership
+                    <div>
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <StatusBadge status={membership.status} />
+
+                        {membership.membershipType === "couple" && (
+                          <span className="rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-xs font-semibold text-purple-300">
+                            Couple membership
+                          </span>
+                        )}
                       </div>
-                    )}
+
+                      <h2 className="text-2xl font-black">
+                        {membership.plan?.name || "Gym Membership"}
+                      </h2>
+
+                      <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
+                        {membership.plan?.description ||
+                          "Your membership details and validity."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 sm:min-w-40 sm:text-center">
+                    <p className="text-xs text-zinc-500">
+                      Membership ID
+                    </p>
+                    <p className="mt-2 break-all text-sm font-semibold text-zinc-200">
+                      {String(membership.id || "—")}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-px bg-white/[0.06] sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  icon={CalendarDays}
+                  label="Start date"
+                  value={formatDate(membership.startDate)}
+                  description="Membership start"
+                />
+
+                <StatCard
+                  icon={Clock3}
+                  label="Expiry date"
+                  value={formatDate(membership.endDate)}
+                  description="Current membership end date"
+                />
+
+                <StatCard
+                  icon={Wallet}
+                  label="Amount paid at purchase"
+                  value={money(membership.priceAtPurchase)}
+                  description="Recorded membership price"
+                />
+
+                <StatCard
+                  icon={BadgeCheck}
+                  label="Days remaining"
+                  value={
+                    hasRemainingDays
+                      ? Math.max(0, remainingDays)
+                      : "—"
+                  }
+                  description={
+                    isActive
+                      ? "Keep training consistently"
+                      : isExpired
+                        ? "Your membership has expired"
+                        : isUpcoming
+                          ? "Your membership is upcoming"
+                          : "Remaining membership duration"
+                  }
+                />
+              </div>
+
+              {progress !== null && (
+                <div className="border-t border-white/10 p-5 sm:p-7">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">
+                      Remaining duration
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {Math.round(progress)}% of plan duration remaining
+                    </p>
                   </div>
 
                   <div
-                    className={`inline-flex w-fit items-center gap-2 rounded-full border px-4 py-2 text-sm font-black capitalize ${getStatusClasses()}`}
+                    className="h-2.5 overflow-hidden rounded-full bg-white/[0.06]"
+                    role="progressbar"
+                    aria-valuenow={Math.round(progress)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Remaining membership duration"
                   >
-                    {membership.status === "active" ? (
-                      <CheckCircle2 size={15} />
-                    ) : (
-                      <Clock3 size={15} />
-                    )}
-                    {getStatusText()}
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-orange-600 to-orange-400 transition-all duration-500"
+                      style={{ width: `${progress}%` }}
+                    />
                   </div>
                 </div>
-
-                {/* Main stats */}
-                <div className="mt-8 grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
-                  <MembershipStat
-                    icon={<CalendarDays size={17} />}
-                    label="Start Date"
-                    value={formatDate(membership.startDate)}
-                  />
-
-                  <MembershipStat
-                    icon={<CalendarDays size={17} />}
-                    label="End Date"
-                    value={formatDate(membership.endDate)}
-                  />
-
-                  <MembershipStat
-                    icon={<Clock3 size={17} />}
-                    label="Remaining Days"
-                    value={membership.remainingDays || 0}
-                    highlight={
-                      Number(membership.remainingDays || 0) > 0
-                    }
-                  />
-
-                  <MembershipStat
-                    icon={<BadgeIndianRupee size={17} />}
-                    label="Membership Price"
-                    value={`₹${formatPrice(
-                      membership.priceAtPurchase ||
-                        membership.plan?.price ||
-                        0
-                    )}`}
-                  />
-                </div>
-              </div>
+              )}
             </section>
 
-            {/* Features */}
-            {membership.plan?.features?.length > 0 && (
-              <section className="mt-6 rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-xl shadow-black/20 sm:p-6">
-                <SectionHeading
-                  icon={<Sparkles size={17} />}
-                  eyebrow="Included"
-                  title="Plan Features"
-                />
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {membership.plan.features.map((feature) => {
-                    const labels = {
-                      gym: "Gym Access",
-                      cardio: "Cardio",
-                      personal_trainer: "Personal Trainer",
-                    };
-
-                    return (
-                      <div
-                        key={feature}
-                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4 transition hover:border-orange-500/20 hover:bg-orange-500/[0.03]"
-                      >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 text-orange-400">
-                          <Check size={17} />
-                        </span>
-
-                        <span className="text-sm font-bold text-zinc-300">
-                          {labels[feature] || feature}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* Extensions */}
-            {membership.extensions?.length > 0 && (
-              <section className="mt-6 rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-xl shadow-black/20 sm:p-6">
-                <SectionHeading
-                  icon={<Clock3 size={17} />}
-                  eyebrow="Membership History"
-                  title="Membership Extensions"
-                  description="Additional days added to your membership."
-                />
-
-                <div className="mt-5 space-y-3">
-                  {membership.extensions.map(
-                    (extension, index) => (
-                      <div
-                        key={extension._id || index}
-                        className="rounded-2xl border border-white/10 bg-black p-4"
-                      >
-                        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 text-orange-400">
-                              <Clock3 size={17} />
-                            </div>
-
-                            <div>
-                              <p className="font-black text-zinc-200">
-                                +{extension.days} Days
-                              </p>
-
-                              <p className="mt-1 text-xs text-zinc-600">
-                                {formatDate(
-                                  extension.createdAt ||
-                                    extension.date
-                                )}
-                              </p>
-                            </div>
-                          </div>
-
-                          {extension.reason && (
-                            <p className="max-w-xl text-sm leading-6 text-zinc-500">
-                              {extension.reason}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )
+            {(isExpired || isUpcoming) && (
+              <section
+                className={`mb-8 rounded-2xl border p-5 sm:p-6 ${
+                  isExpired
+                    ? "border-red-500/20 bg-red-500/[0.06]"
+                    : "border-blue-500/20 bg-blue-500/[0.06]"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {isExpired ? (
+                    <XCircle
+                      size={22}
+                      className="mt-0.5 shrink-0 text-red-400"
+                    />
+                  ) : (
+                    <Clock3
+                      size={22}
+                      className="mt-0.5 shrink-0 text-blue-400"
+                    />
                   )}
+
+                  <div>
+                    <h3 className="font-bold">
+                      {isExpired
+                        ? "Your membership has expired"
+                        : "Your membership has not started yet"}
+                    </h3>
+
+                    <p className="mt-2 text-sm leading-6 text-zinc-400">
+                      {isExpired
+                        ? "Visit the membership page to review the available renewal options."
+                        : "Your membership is scheduled for a future date. Contact the gym admin if you need help."}
+                    </p>
+
+                    {isExpired && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.push("/member/membership")
+                        }
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-400"
+                      >
+                        View renewal plans
+                        <ArrowRight size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </section>
             )}
+          </>
+        ) : (
+          <section className="mb-8 rounded-3xl border border-white/10 bg-[#111111]">
+            <EmptyState
+              icon={Dumbbell}
+              title="No membership found"
+              description="There is no membership linked to your account yet. If you have already paid, refresh this page or contact the gym admin."
+            />
 
-            {/* Pending Renewal */}
-            {pendingRenewal && (
-              <section className="mt-6 overflow-hidden rounded-3xl border border-yellow-500/20 bg-yellow-500/[0.04] p-5 sm:p-6">
-                <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
-                  <div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-yellow-500/20 bg-yellow-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-yellow-400">
-                      <Clock3 size={12} />
-                      Payment Pending
+            <div className="border-t border-white/10 p-5 text-center">
+              <button
+                type="button"
+                onClick={() => loadStatus(true)}
+                disabled={refreshing}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-300 hover:bg-white/5 disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={16}
+                  className={refreshing ? "animate-spin" : ""}
+                />
+                Check again
+              </button>
+            </div>
+          </section>
+        )}
+
+        {(pendingRenewal || pendingExtension) && (
+          <section className="mb-8">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold">Pending requests</h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                Requests that still need payment or confirmation
+              </p>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              {pendingRenewal && (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-xl bg-amber-500/10 p-3 text-amber-400">
+                        <CreditCard size={20} />
+                      </div>
+
+                      <div>
+                        <h3 className="font-bold">
+                          Membership renewal
+                        </h3>
+                        <p className="mt-1 text-sm text-zinc-400">
+                          {pendingRenewal.plan?.name ||
+                            pendingRenewal.membershipPlan?.name ||
+                            "Renewal request"}
+                        </p>
+                      </div>
                     </div>
 
-                    <h2 className="mt-4 text-xl font-black">
-                      {pendingRenewal.plan?.name ||
-                        pendingRenewal.membershipPlan?.name ||
-                        "Membership Renewal"}
-                    </h2>
-
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-                      Your membership renewal payment has not
-                      been completed yet.
-                    </p>
+                    <StatusBadge status={pendingRenewal.status} />
                   </div>
 
-                  <div className="rounded-2xl border border-white/10 bg-black px-5 py-4">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                  <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
+                    <span className="text-sm text-zinc-400">
                       Amount
-                    </p>
-
-                    <p className="mt-1 text-2xl font-black text-white">
-                      ₹{formatPrice(pendingRenewal.amount)}
-                    </p>
+                    </span>
+                    <span className="text-xl font-black">
+                      {money(pendingRenewal.amount)}
+                    </span>
                   </div>
-                </div>
 
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <MiniInfo
-                    label="Payment Method"
-                    value={pendingRenewal.method || "-"}
-                    uppercase
-                  />
-
-                  <MiniInfo
-                    label="Status"
-                    value={pendingRenewal.status || "pending"}
-                    color="yellow"
-                  />
-
-                  <MiniInfo
-                    label="Requested"
-                    value={formatDate(pendingRenewal.createdAt)}
-                  />
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-yellow-500/10 bg-black p-4">
-                  <p className="text-sm leading-6 text-zinc-500">
-                    {pendingRenewal.method === "cash"
-                      ? "Please pay the renewal amount at the gym. An admin will confirm your cash payment and activate the renewal."
-                      : "Your UPI renewal payment is pending. You can return to the renewal page to continue the payment or switch the payment method to cash."}
+                  <p className="mt-3 text-xs leading-5 text-zinc-500">
+                    Method: {pendingRenewal.method || "—"}
                   </p>
-                </div>
 
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <button
                     type="button"
                     onClick={() =>
                       router.push("/member/membership")
                     }
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black transition hover:bg-orange-400"
+                    className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-orange-400 hover:text-orange-300"
                   >
-                    Manage Renewal
-                    <ChevronRight size={15} />
+                    View renewal
+                    <ArrowRight size={16} />
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={loadMembershipStatus}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 px-5 py-3 text-sm font-bold text-zinc-400 transition hover:border-orange-500/30 hover:text-orange-400"
-                  >
-                    <RefreshCw size={14} />
-                    Check Payment Status
-                  </button>
-                </div>
-              </section>
-            )}
-
-            {/* Pending Extension */}
-            {pendingExtension && (
-              <section className="mt-6 rounded-3xl border border-blue-500/20 bg-blue-500/[0.04] p-5 sm:p-6">
-                <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-blue-400">
-                  <Clock3 size={12} />
-                  Extension Pending
-                </div>
-
-                <h2 className="mt-4 text-xl font-black">
-                  Membership Extension
-                </h2>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <MiniInfo
-                    label="Amount"
-                    value={`₹${formatPrice(
-                      pendingExtension.amount
-                    )}`}
-                  />
-
-                  <MiniInfo
-                    label="Method"
-                    value={pendingExtension.method || "-"}
-                    uppercase
-                  />
-
-                  <MiniInfo
-                    label="Status"
-                    value={pendingExtension.status || "pending"}
-                    color="yellow"
-                  />
-                </div>
-
-                <p className="mt-5 text-sm leading-6 text-zinc-500">
-                  Your extension request is waiting for payment
-                  confirmation.
-                </p>
-              </section>
-            )}
-
-            {/* Payment History */}
-            <section className="mt-6 rounded-3xl border border-white/10 bg-zinc-950 p-5 shadow-xl shadow-black/20 sm:p-6">
-              <SectionHeading
-                icon={<History size={17} />}
-                eyebrow="Transactions"
-                title="Payment History"
-                description="Your recent membership payments."
-              />
-
-              {payments.length === 0 ? (
-                <div className="mt-5 rounded-2xl border border-white/10 bg-black p-8 text-center">
-                  <Wallet
-                    size={25}
-                    className="mx-auto text-zinc-700"
-                  />
-
-                  <p className="mt-3 text-sm font-semibold text-zinc-600">
-                    No payment history available.
-                  </p>
-                </div>
-              ) : (
-                <div className="mt-5 space-y-3">
-                  {payments.map((payment, index) => (
-                    <div
-                      key={
-                        payment._id ||
-                        payment.id ||
-                        index
-                      }
-                      className="rounded-2xl border border-white/10 bg-black p-4 transition hover:border-orange-500/15"
-                    >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.04] text-zinc-500">
-                            <CreditCard size={17} />
-                          </div>
-
-                          <div>
-                            <p className="font-black capitalize text-zinc-200">
-                              {payment.paymentType ||
-                                "Payment"}
-                            </p>
-
-                            <p className="mt-1 text-xs text-zinc-600">
-                              {formatDateTime(
-                                payment.paidAt ||
-                                  payment.createdAt
-                              )}
-                            </p>
-
-                            {payment.method && (
-                              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-700">
-                                {payment.method}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="text-left sm:text-right">
-                          <p className="text-lg font-black">
-                            ₹{formatPrice(payment.amount)}
-                          </p>
-
-                          <p
-                            className={`mt-1 text-xs font-bold capitalize ${getPaymentStatusClasses(
-                              payment.status
-                            )}`}
-                          >
-                            {payment.status || "unknown"}
-                          </p>
-                        </div>
-                      </div>
-
-                      {payment.transactionId && (
-                        <div className="mt-4 border-t border-white/5 pt-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-700">
-                            Transaction ID
-                          </p>
-
-                          <p className="mt-1 break-all font-mono text-xs text-zinc-600">
-                            {payment.transactionId}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
                 </div>
               )}
-            </section>
-          </>
+
+              {pendingExtension && (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-xl bg-amber-500/10 p-3 text-amber-400">
+                        <CalendarDays size={20} />
+                      </div>
+
+                      <div>
+                        <h3 className="font-bold">
+                          Membership extension
+                        </h3>
+                        <p className="mt-1 text-sm text-zinc-400">
+                          {pendingExtension.promotion?.title ||
+                            "Extension request"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <StatusBadge status={pendingExtension.status} />
+                  </div>
+
+                  <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
+                    <span className="text-sm text-zinc-400">
+                      Amount
+                    </span>
+                    <span className="text-xl font-black">
+                      {money(pendingExtension.amount)}
+                    </span>
+                  </div>
+
+                  <p className="mt-3 text-xs leading-5 text-zinc-500">
+                    Your extension is applied after the payment is
+                    confirmed.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
         )}
 
-        {/* Bottom Actions */}
-        <div className="mt-7 flex flex-col gap-3 pb-8 sm:flex-row">
-          {membership && (
+        <section className="mb-8">
+          <div className="mb-5 flex items-end justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-orange-400">
+                <History size={18} />
+                <span className="text-xs font-bold uppercase tracking-[0.16em]">
+                  Your records
+                </span>
+              </div>
+
+              <h2 className="mt-2 text-2xl font-black">
+                Extension history
+              </h2>
+
+              <p className="mt-2 text-sm text-zinc-500">
+                Membership extensions recorded for your plan
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-[#111111] px-5 sm:px-6">
+            {extensions.length > 0 ? (
+              <div className="divide-y divide-white/[0.07]">
+                {extensions.map((extension, index) => (
+                  <ExtensionRow
+                    key={extension._id || extension.id || index}
+                    extension={extension}
+                    index={index}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                icon={CalendarDays}
+                title="No extensions recorded"
+                description="Any membership extensions recorded for your account will appear here."
+              />
+            )}
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <div className="mb-5">
+            <div className="flex items-center gap-2 text-orange-400">
+              <CreditCard size={18} />
+              <span className="text-xs font-bold uppercase tracking-[0.16em]">
+                Payment activity
+              </span>
+            </div>
+
+            <h2 className="mt-2 text-2xl font-black">
+              Recent payments
+            </h2>
+
+            <p className="mt-2 text-sm text-zinc-500">
+              Review payment amounts, methods, and confirmation status
+            </p>
+          </div>
+
+          <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#111111]">
+            {payments.length > 0 ? (
+              <>
+                {payments.map((payment, index) => (
+                  <PaymentRow
+                    key={payment.id || payment._id || index}
+                    payment={payment}
+                  />
+                ))}
+
+                <div className="border-t border-white/10 bg-black/20 px-5 py-3 text-xs text-zinc-500 sm:px-6">
+                  Showing {payments.length} payment
+                  {payments.length === 1 ? "" : "s"} returned by your
+                  membership status endpoint.
+                </div>
+              </>
+            ) : (
+              <EmptyState
+                icon={Wallet}
+                title="No payment records found"
+                description="Your payment history will appear here when records are available."
+              />
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-orange-500/20 bg-gradient-to-r from-orange-500/[0.08] to-[#111111] p-5 sm:p-7">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-orange-500/10 p-3 text-orange-400">
+                <Dumbbell size={22} />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-bold">
+                  Ready for your next training phase?
+                </h2>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
+                  Review your renewal plans and keep your fitness routine
+                  on track.
+                </p>
+              </div>
+            </div>
+
             <button
               type="button"
               onClick={() =>
                 router.push("/member/membership")
               }
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-black shadow-lg shadow-orange-500/10 transition hover:bg-orange-400"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-400"
             >
-              Renew Membership
-              <ChevronRight size={15} />
+              View membership plans
+              <ArrowRight size={17} />
             </button>
-          )}
+          </div>
+        </section>
 
-          <button
-            type="button"
-            onClick={() => router.push("/member")}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 px-5 py-3 text-sm font-bold text-zinc-400 transition hover:border-orange-500/30 hover:text-orange-400"
-          >
-            <ArrowLeft size={15} />
-            Back to Dashboard
-          </button>
-        </div>
+        <footer className="mt-10 flex flex-col justify-between gap-3 border-t border-white/10 py-6 text-xs text-zinc-500 sm:flex-row sm:items-center">
+          <p>Your membership information is loaded from your account.</p>
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={15} className="text-emerald-500" />
+            Membership status
+          </div>
+        </footer>
       </div>
     </main>
-  );
-}
-
-function MembershipStat({
-  icon,
-  label,
-  value,
-  highlight = false,
-}) {
-  return (
-    <div className="bg-zinc-950 p-5">
-      <div
-        className={`flex h-9 w-9 items-center justify-center rounded-xl ${
-          highlight
-            ? "bg-orange-500/10 text-orange-400"
-            : "bg-white/[0.04] text-zinc-600"
-        }`}
-      >
-        {icon}
-      </div>
-
-      <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-600">
-        {label}
-      </p>
-
-      <p
-        className={`mt-1 text-lg font-black ${
-          highlight ? "text-orange-400" : "text-zinc-200"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function SectionHeading({
-  icon,
-  eyebrow,
-  title,
-  description,
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 text-orange-400">
-        {icon}
-
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em]">
-          {eyebrow}
-        </span>
-      </div>
-
-      <h2 className="mt-2 text-xl font-black">
-        {title}
-      </h2>
-
-      {description && (
-        <p className="mt-1 text-sm text-zinc-600">
-          {description}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function MiniInfo({
-  label,
-  value,
-  color = "default",
-  uppercase = false,
-}) {
-  const valueClass =
-    color === "yellow"
-      ? "text-yellow-400"
-      : color === "blue"
-        ? "text-blue-400"
-        : "text-zinc-300";
-
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black p-4">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-700">
-        {label}
-      </p>
-
-      <p
-        className={`mt-1 font-black ${valueClass} ${
-          uppercase ? "uppercase" : ""
-        }`}
-      >
-        {value}
-      </p>
-    </div>
   );
 }

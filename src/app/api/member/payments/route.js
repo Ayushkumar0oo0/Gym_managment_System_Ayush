@@ -1,4 +1,4 @@
-
+import User from "@/models/User";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -32,30 +32,27 @@ export async function GET(request) {
       );
     }
 
-    // 3. DATABASE
-    await connectDB();
 
-    // 4. QUERY PARAMETERS
-    const { searchParams } = new URL(request.url);
+// 3. DATABASE
+await connectDB();
 
-    const requestedPage = Number(searchParams.get("page") || 1);
-    const requestedLimit = Number(searchParams.get("limit") || 10);
+const member = await User.findById(session.user.id)
+  .select("_id role isActive")
+  .lean();
 
-    const paymentType = searchParams.get("paymentType") || "";
-    const method = searchParams.get("method") || "";
-    const status = searchParams.get("status") || "";
+if (!member || member.role !== "member" || !member.isActive) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
 
-    const page =
-      Number.isInteger(requestedPage) && requestedPage > 0
-        ? requestedPage
-        : 1;
+const memberId = member._id;
 
-    const limit =
-      Number.isInteger(requestedLimit) &&
-      requestedLimit > 0 &&
-      requestedLimit <= 50
-        ? requestedLimit
-        : 10;
 
     // 5. VALIDATE FILTERS
     const allowedPaymentTypes = [
@@ -108,7 +105,7 @@ export async function GET(request) {
 
     // 6. BUILD QUERY
     const query = {
-      user: session.user.id,
+       user: memberId,
     };
 
     if (paymentType) {
@@ -216,7 +213,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
           },
         },
@@ -231,7 +228,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "pending",
           },
         },
@@ -246,7 +243,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "refunded",
           },
         },
@@ -261,7 +258,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
             paymentType: "membership",
           },
@@ -277,7 +274,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
             paymentType: "renewal",
           },
@@ -293,7 +290,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
             paymentType: "promotion",
           },
@@ -309,7 +306,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
             paymentType: "registration",
           },
@@ -325,7 +322,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
             method: "cash",
           },
@@ -342,7 +339,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+            user: memberId,
             status: "paid",
             method: "upi",
           },
@@ -359,7 +356,7 @@ export async function GET(request) {
       Payment.aggregate([
         {
           $match: {
-            user: session.user.id,
+           user: memberId,
             status: "paid",
             method: "online",
           },

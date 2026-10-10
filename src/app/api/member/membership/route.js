@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-
+import User from "@/models/User";
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
 
@@ -37,7 +37,40 @@ export async function GET() {
     // DATABASE
     // ==========================================
 
-    await connectDB();
+ await connectDB();
+
+// ==========================================
+// VERIFY CURRENT ACCOUNT STATUS
+// ==========================================
+
+const user = await User.findById(session.user.id)
+  .select("_id role isActive")
+  .lean();
+
+if (!user) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Member account not found.",
+    },
+    { status: 404 }
+  );
+}
+
+if (!user.isActive || user.role !== "member") {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
+
+// ==========================================
+// FIND CURRENT MEMBERSHIP
+// ==========================================
 
     // ==========================================
     // FIND CURRENT MEMBERSHIP

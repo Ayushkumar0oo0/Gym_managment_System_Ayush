@@ -1,5 +1,5 @@
 // src/app/api/member/workout-machines/route.js
-
+import User from "@/models/User";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -411,9 +411,43 @@ export async function GET(request) {
        DATABASE
     ----------------------------------------------------- */
 
-    await connectDB();
+    
+await connectDB();
 
-    await ensureDefaultCatalog();
+// Verify the current account status from the database.
+const currentUser = await User.findById(session.user.id)
+  .select("_id role isActive membershipAccessLocked")
+  .lean();
+
+if (!currentUser || !currentUser.isActive) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Your account is inactive or unavailable.",
+      code: "ACCOUNT_INACTIVE",
+    },
+    { status: 403 }
+  );
+}
+
+// Only members are subject to membership expiry restrictions.
+// Admins can continue accessing workout machines.
+if (
+  currentUser.role === "member" &&
+  currentUser.membershipAccessLocked
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        "Your membership access is locked. Please renew your membership to view workouts.",
+      code: "MEMBERSHIP_ACCESS_LOCKED",
+    },
+    { status: 403 }
+  );
+}
+
+await ensureDefaultCatalog();
 
     /* -----------------------------------------------------
        QUERY PARAMETERS

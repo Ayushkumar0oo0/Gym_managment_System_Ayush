@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-
+import User from "@/models/User";
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
 import Product from "@/models/Product";
@@ -20,6 +20,38 @@ const ALLOWED_PAYMENT_METHODS = [
   "cash",
   "upi",
 ];
+
+async function checkMemberAccess(userId) {
+  const user = await User.findById(userId)
+    .select("_id role isActive membershipAccessLocked")
+    .lean();
+
+  if (!user || user.role !== "member" || !user.isActive) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Your account is inactive or unavailable.",
+        code: "ACCOUNT_INACTIVE",
+      },
+      { status: 403 }
+    );
+  }
+
+  if (user.membershipAccessLocked) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Your membership access is locked. Please renew your membership to access product orders.",
+        code: "MEMBERSHIP_ACCESS_LOCKED",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 
 // ========================================
 // GET
@@ -62,24 +94,29 @@ export async function GET() {
     // 3. Connect database
     // ------------------------------------
 
-    await connectDB();
+    // 3. Connect database
 
-    // ------------------------------------
-    // 4. Get member's orders
-    // ------------------------------------
+await connectDB();
 
-    const orders =
-      await ProductOrder.find({
-        user: session.user.id,
-      })
-        .populate(
-          "product",
-          "name description imageUrl originalPrice price"
-        )
-        .sort({
-          createdAt: -1,
-        })
-        .lean();
+const accessError = await checkMemberAccess(session.user.id);
+
+if (accessError) {
+  return accessError;
+}
+
+// 4. Get member's orders
+
+const orders = await ProductOrder.find({
+  user: session.user.id,
+})
+  .populate(
+    "product",
+    "name description imageUrl originalPrice price"
+  )
+  .sort({
+    createdAt: -1,
+  })
+  .lean();
 
     // ------------------------------------
     // 5. Return orders
@@ -248,6 +285,11 @@ export async function POST(request) {
     // ------------------------------------
 
     await connectDB();
+    const accessError = await checkMemberAccess(session.user.id);
+
+if (accessError) {
+  return accessError;
+}
 
     // ------------------------------------
     // 9. Find active product
