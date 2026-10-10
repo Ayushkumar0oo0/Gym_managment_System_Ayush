@@ -192,16 +192,15 @@ export async function POST(request) {
     // 9. VERIFY PAYMENT METHOD
     // -----------------------------------
 
-    if (payment.method !== "upi") {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "This payment is not a UPI payment.",
-        },
-        { status: 400 }
-      );
-    }
+   if (!["online", "upi"].includes(payment.method)) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "This payment method is not supported.",
+    },
+    { status: 400 }
+  );
+}
 
     // -----------------------------------
     // 10. VERIFY PROMOTION REFERENCE
@@ -549,6 +548,9 @@ export async function POST(request) {
             "Invalid promotion payment."
           );
         }
+        if (!["online", "upi"].includes(paymentInTransaction.method)) {
+  throw new Error("Unsupported promotion payment method.");
+}
 
         // ---------------------------------
         // Concurrent verification

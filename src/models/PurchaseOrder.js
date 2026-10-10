@@ -259,10 +259,10 @@ const purchaseOrderSchema = new mongoose.Schema(
     // ==================================================
 
     paymentMethod: {
-      type: String,
-      enum: ["upi", "cash"],
-      required: true,
-    },
+  type: String,
+  enum: ["online", "upi", "cash"],
+  required: true,
+},
 
     // ==================================================
     // ORDER STATUS

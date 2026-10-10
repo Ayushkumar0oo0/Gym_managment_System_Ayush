@@ -266,8 +266,8 @@ export default function AdminPaymentsPage() {
             </h1>
 
             <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-500">
-              Monitor gym revenue, UPI payments, cash collections,
-              renewals and membership transactions.
+             Monitor gym revenue, online and legacy UPI payments, cash collections,
+renewals and membership transactions.
             </p>
           </div>
 
@@ -425,7 +425,7 @@ export default function AdminPaymentsPage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2 text-zinc-500">
                     <Smartphone className="h-3.5 w-3.5" />
-                    UPI
+                  Online / Legacy UPI
                   </span>
 
                   <span className="font-semibold text-zinc-200">
@@ -524,11 +524,12 @@ export default function AdminPaymentsPage() {
                 setMethodFilter(value);
                 setPage(1);
               }}
-              options={[
-                ["all", "All Methods"],
-                ["upi", "UPI"],
-                ["cash", "Cash"],
-              ]}
+             options={[
+  ["all", "All Methods"],
+  ["online", "Online"],
+  ["upi", "Legacy UPI"],
+  ["cash", "Cash"],
+]}
             />
 
             <FilterSelect

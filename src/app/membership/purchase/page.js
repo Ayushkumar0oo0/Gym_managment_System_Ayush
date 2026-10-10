@@ -94,7 +94,7 @@ function MembershipPurchasePageContent() {
   // PAYMENT
   // --------------------------------------------------
 
-  const [method, setMethod] = useState("upi");
+ const [method, setMethod] = useState("online");
 
   // --------------------------------------------------
   // QUOTE
@@ -923,9 +923,9 @@ function MembershipPurchasePageContent() {
       }
 
       if (
-        method === "upi" &&
-        !razorpayReady
-      ) {
+  method === "online" &&
+  !razorpayReady
+) {
         setError(
           "Razorpay is still loading. Please wait a moment and try again."
         );
@@ -1039,10 +1039,10 @@ function MembershipPurchasePageContent() {
         return;
       }
 
-      // UPI
-      await startRazorpayPayment(
-        purchaseOrder.id
-      );
+      // ONLINE PAYMENT
+await startRazorpayPayment(
+  purchaseOrder.id
+);
     } catch (err) {
       console.error(
         "PUBLIC MEMBERSHIP PURCHASE ERROR:",
@@ -1121,32 +1121,7 @@ const options = {
     "Gym Membership Purchase",
 
   order_id: data.razorpay.orderId,
-
-  // Request UPI as the payment method
-  
-
-config: {
-  display: {
-    blocks: {
-      banks: {
-        name: "Pay via UPI",
-        instruments: [
-          {
-            method: "upi",
-          },
-        ],
-      },
-    },
-    sequence: ["block.banks"],
-    preferences: {
-      show_default_blocks: false,
-    },
-  },
-},
-
-
-
-  prefill: {
+prefill: {
     name: form.name.trim(),
     email: form.email.trim().toLowerCase(),
     contact: form.phone.trim(),
@@ -1880,23 +1855,18 @@ config: {
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <PaymentCard
-                  selected={
-                    method === "upi"
-                  }
-                  disabled={purchasing}
-                  icon={
-                    <CreditCard
-                      size={21}
-                    />
-                  }
-                  title="UPI / Online"
-                  description="Pay securely using Razorpay."
-                  badge="Recommended"
-                  onClick={() => {
-                    setMethod("upi");
-                    setError("");
-                  }}
-                />
+  selected={method === "online"}
+  disabled={purchasing}
+  icon={<CreditCard size={21} />}
+  title="Online Payment"
+  description="Pay using UPI, cards, net banking, and other available methods."
+  badge="Recommended"
+  onClick={() => {
+    setMethod("online");
+    setError("");
+  }}
+/>
+                
 
                 <PaymentCard
                   selected={
@@ -1943,7 +1913,7 @@ config: {
                     </div>
                   </div>
 
-                  {method === "upi" &&
+                  {method === "online" &&
                     !razorpayReady && (
                       <div className="mt-5 flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-400">
                         <Loader2
@@ -2007,7 +1977,7 @@ config: {
                       </>
                     ) : (
                       <>
-                        Continue to UPI Payment
+                        Continue to Online  Payment
                         <ArrowRight
                           size={16}
                         />

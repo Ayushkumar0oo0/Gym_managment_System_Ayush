@@ -71,9 +71,9 @@ export async function completePurchaseOrder({
     throw new Error("Invalid purchase order ID.");
   }
 
-  if (!["upi", "cash"].includes(paymentMethod)) {
-    throw new Error("Invalid payment method.");
-  }
+ if (!["online", "upi", "cash"].includes(paymentMethod)) {
+  throw new Error("Invalid payment method.");
+}
 
   /* =======================================================
      2. LOAD PURCHASE ORDER
@@ -113,9 +113,9 @@ export async function completePurchaseOrder({
   ======================================================= */
 
   const allowedStatuses =
-    paymentMethod === "upi"
-      ? ["payment_pending"]
-      : ["cash_pending"];
+  ["online", "upi"].includes(paymentMethod)
+    ? ["payment_pending"]
+    : ["cash_pending"];
 
   if (
     !allowedStatuses.includes(
@@ -131,14 +131,17 @@ export async function completePurchaseOrder({
      5. VALIDATE PAYMENT METHOD
   ======================================================= */
 
-  if (
-    purchaseOrder.paymentMethod !==
-    paymentMethod
-  ) {
-    throw new Error(
-      "Payment method does not match the purchase order."
-    );
-  }
+  const orderIsOnline = ["online", "upi"].includes(
+  purchaseOrder.paymentMethod
+);
+
+const requestedIsOnline = ["online", "upi"].includes(
+  paymentMethod
+);
+
+if (orderIsOnline !== requestedIsOnline) {
+  throw new Error("Payment method does not match the purchase order.");
+}
 
   /* =======================================================
      6. EXPIRATION
@@ -765,15 +768,14 @@ export async function completePurchaseOrder({
     status: "paid",
 
     gatewayOrderId:
-      paymentMethod === "upi"
-        ? gatewayOrderId ||
-          purchaseOrder.gatewayOrderId
-        : null,
+  ["online", "upi"].includes(paymentMethod)
+    ? gatewayOrderId || purchaseOrder.gatewayOrderId
+    : null,
 
-    gatewayPaymentId:
-      paymentMethod === "upi"
-        ? gatewayPaymentId
-        : null,
+gatewayPaymentId:
+  ["online", "upi"].includes(paymentMethod)
+    ? gatewayPaymentId
+    : null,
 
     transactionId:
       transactionId || null,

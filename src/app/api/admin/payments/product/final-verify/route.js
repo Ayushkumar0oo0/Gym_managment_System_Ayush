@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import mongoose from "mongoose";
@@ -5,10 +6,8 @@ import Razorpay from "razorpay";
 
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
-
 import Payment from "@/models/Payment";
 import ProductOrder from "@/models/ProductOrder";
-
 import { createNotification } from "@/lib/notifications";
 
 import {
@@ -18,14 +17,50 @@ import {
   rateLimitResponse,
 } from "@/lib/rateLimit";
 
+function errorResponse(message, status = 400) {
+  return NextResponse.json(
+    { success: false, message },
+    { status }
+  );
+}
+
+function validMoney(value) {
+  const amount = Number(value);
+
+  return (
+    Number.isFinite(amount) &&
+    amount >= 0 &&
+    Number.isSafeInteger(Math.round(amount * 100))
+  );
+}
+
+function verifySignature(orderId, paymentId, signature, secret) {
+  if (
+    typeof signature !== "string" ||
+    !/^[a-fA-F0-9]{64}$/.test(signature)
+  ) {
+    return false;
+  }
+
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${orderId}|${paymentId}`)
+    .digest();
+
+  const received = Buffer.from(signature, "hex");
+
+  return (
+    expected.length === received.length &&
+    crypto.timingSafeEqual(expected, received)
+  );
+}
+
 function getRazorpayClient() {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
   if (!keyId || !keySecret) {
-    throw new Error(
-      "Razorpay credentials are not configured."
-    );
+    throw new Error("Razorpay credentials are not configured.");
   }
 
   return new Razorpay({
@@ -34,971 +69,484 @@ function getRazorpayClient() {
   });
 }
 
-function normalizeRazorpayAmount(value) {
-  const amount = Number(value);
-
-  if (!Number.isFinite(amount)) {
-    return null;
-  }
-
-  return amount;
-}
-
 export async function POST(request) {
   let dbSession = null;
 
   try {
-    // =========================================================
-    // 1. AUTHENTICATION
-    // =========================================================
-
+    // 1. Authenticate.
     const session = await auth();
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
-        { status: 401 }
-      );
+      return errorResponse("Unauthorized.", 401);
     }
 
-    // =========================================================
-    // 2. RATE LIMIT
-    // =========================================================
-
+    // 2. Rate limit.
     const clientIp = getClientIp(request);
 
-    const rateLimitResult =
-      await paymentRateLimit.limit(
-        createRateLimitIdentifier(
-          "final-product-payment-verify",
-          `${session.user.id}:${clientIp}`
-        )
-      );
+    const rateLimitResult = await paymentRateLimit.limit(
+      createRateLimitIdentifier(
+        "final-product-payment-verify",
+        `${session.user.id}:${clientIp}`
+      )
+    );
 
     if (!rateLimitResult.success) {
       return rateLimitResponse(rateLimitResult);
     }
 
-    // =========================================================
-    // 3. READ REQUEST BODY
-    // =========================================================
+    // 3. Validate the request.
+    let body;
 
-    const body = await request.json();
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse("Invalid JSON request.", 400);
+    }
 
     const {
       paymentId,
       razorpayOrderId,
       razorpayPaymentId,
       razorpaySignature,
-    } = body;
+    } = body ?? {};
 
     if (
-      !paymentId ||
+      typeof paymentId !== "string" ||
+      !mongoose.isValidObjectId(paymentId) ||
+      typeof razorpayOrderId !== "string" ||
       !razorpayOrderId ||
+      typeof razorpayPaymentId !== "string" ||
       !razorpayPaymentId ||
+      typeof razorpaySignature !== "string" ||
       !razorpaySignature
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Payment verification details are required.",
-        },
-        { status: 400 }
+      return errorResponse(
+        "Payment verification details are invalid.",
+        400
       );
     }
 
-    // =========================================================
-    // 4. VALIDATE PAYMENT ID
-    // =========================================================
+    const secret = process.env.RAZORPAY_KEY_SECRET;
 
-    if (
-      !mongoose.Types.ObjectId.isValid(paymentId)
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid payment ID.",
-        },
-        { status: 400 }
+    if (!secret) {
+      console.error("RAZORPAY_KEY_SECRET is not configured.");
+      return errorResponse(
+        "Payment verification is temporarily unavailable.",
+        503
       );
     }
 
-    // =========================================================
-    // 5. CONNECT DATABASE
-    // =========================================================
-
+    // 4. Connect to MongoDB.
     await connectDB();
 
-    // =========================================================
-    // 6. FIND PAYMENT
-    // =========================================================
-
-    const existingPayment =
-      await Payment.findById(paymentId);
+    // 5. Find the payment.
+    const existingPayment = await Payment.findById(paymentId);
 
     if (!existingPayment) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Payment record not found.",
-        },
-        { status: 404 }
-      );
+      return errorResponse("Payment record not found.", 404);
     }
-
-    // =========================================================
-    // 7. PAYMENT OWNERSHIP
-    // =========================================================
 
     if (
       !existingPayment.user ||
-      existingPayment.user.toString() !==
-        session.user.id
+      existingPayment.user.toString() !== session.user.id
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "You are not allowed to verify this payment.",
-        },
-        { status: 403 }
+      return errorResponse(
+        "You are not allowed to verify this payment.",
+        403
       );
     }
 
-    // =========================================================
-    // 8. PAYMENT TYPE
-    // =========================================================
-
-    if (
-      existingPayment.paymentType !==
-      "product"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid payment type.",
-        },
-        { status: 400 }
-      );
+    if (existingPayment.paymentType !== "product") {
+      return errorResponse("Invalid payment type.", 400);
     }
-
-    // =========================================================
-    // 9. PAYMENT METHOD
-    // =========================================================
 
     if (existingPayment.method !== "upi") {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "This payment is not a UPI payment.",
-        },
-        { status: 400 }
+      return errorResponse(
+        "This payment is not a UPI payment.",
+        400
       );
     }
 
-    // =========================================================
-    // 10. RAZORPAY ORDER ID
-    // =========================================================
-
-    if (
-      existingPayment.gatewayOrderId !==
-      razorpayOrderId
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay order ID does not match.",
-        },
-        { status: 400 }
+    if (existingPayment.gatewayOrderId !== razorpayOrderId) {
+      return errorResponse(
+        "Razorpay order ID does not match.",
+        400
       );
     }
 
-    // =========================================================
-    // 11. IDEMPOTENCY
-    //
-    // If this payment was already processed, don't process
-    // the order again.
-    // =========================================================
-
+    // 6. Idempotency: a retry must use the same payment ID.
     if (existingPayment.status === "paid") {
-      return NextResponse.json(
-        {
-          success: true,
-          alreadyProcessed: true,
-          message: "Payment already verified.",
-          payment: {
-            id: existingPayment._id,
-            status: existingPayment.status,
-            amount: existingPayment.amount,
-            gatewayPaymentId:
-              existingPayment.gatewayPaymentId,
-            paidAt: existingPayment.paidAt,
-          },
-        },
-        { status: 200 }
-      );
-    }
+      if (
+        existingPayment.gatewayPaymentId !== razorpayPaymentId
+      ) {
+        return errorResponse(
+          "Payment was already completed with a different payment ID.",
+          409
+        );
+      }
 
-    // =========================================================
-    // 12. PAYMENT MUST BE PENDING
-    // =========================================================
+      return NextResponse.json({
+        success: true,
+        alreadyProcessed: true,
+        message: "Payment already verified.",
+        payment: {
+          id: existingPayment._id.toString(),
+          status: existingPayment.status,
+          amount: existingPayment.amount,
+          gatewayPaymentId: existingPayment.gatewayPaymentId,
+          paidAt: existingPayment.paidAt,
+        },
+      });
+    }
 
     if (existingPayment.status !== "pending") {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            `Payment is already ${existingPayment.status}.`,
-        },
-        { status: 400 }
+      return errorResponse(
+        `Payment cannot be verified because its status is ${existingPayment.status}.`,
+        409
       );
     }
 
-    // =========================================================
-    // 13. VERIFY RAZORPAY CONFIGURATION
-    // =========================================================
-
-    if (!process.env.RAZORPAY_KEY_SECRET) {
-      throw new Error(
-        "RAZORPAY_KEY_SECRET is not configured."
-      );
-    }
-
-    // =========================================================
-    // 14. VERIFY RAZORPAY SIGNATURE
-    // =========================================================
-
-    const generatedSignature =
-      crypto
-        .createHmac(
-          "sha256",
-          process.env.RAZORPAY_KEY_SECRET
-        )
-        .update(
-          `${razorpayOrderId}|${razorpayPaymentId}`
-        )
-        .digest("hex");
-
-    const providedSignatureBuffer =
-      Buffer.from(
-        String(razorpaySignature),
-        "utf8"
-      );
-
-    const generatedSignatureBuffer =
-      Buffer.from(
-        generatedSignature,
-        "utf8"
-      );
-
+    // 7. Verify the signature.
     if (
-      providedSignatureBuffer.length !==
-      generatedSignatureBuffer.length
+      !verifySignature(
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+        secret
+      )
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Invalid Razorpay payment signature.",
-        },
-        { status: 400 }
+      return errorResponse(
+        "Invalid Razorpay payment signature.",
+        400
       );
     }
 
-    const signatureValid =
-      crypto.timingSafeEqual(
-        providedSignatureBuffer,
-        generatedSignatureBuffer
-      );
-
-    if (!signatureValid) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Invalid Razorpay payment signature.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // =========================================================
-    // 15. FETCH PAYMENT DIRECTLY FROM RAZORPAY
-    // =========================================================
-
+    // 8. Fetch authoritative payment details from Razorpay.
     const razorpay = getRazorpayClient();
 
     const razorpayPayment =
-      await razorpay.payments.fetch(
-        razorpayPaymentId
-      );
-
-    if (!razorpayPayment) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay payment could not be found.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // =========================================================
-    // 16. VERIFY RAZORPAY PAYMENT ID
-    // =========================================================
+      await razorpay.payments.fetch(razorpayPaymentId);
 
     if (
-      razorpayPayment.id !==
-      razorpayPaymentId
+      !razorpayPayment ||
+      razorpayPayment.id !== razorpayPaymentId ||
+      razorpayPayment.order_id !== razorpayOrderId
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay payment ID does not match.",
-        },
-        { status: 400 }
+      return errorResponse(
+        "Razorpay payment details do not match.",
+        400
       );
     }
 
-    // =========================================================
-    // 17. VERIFY RAZORPAY ORDER ID
-    // =========================================================
-
-    if (
-      razorpayPayment.order_id !==
-      razorpayOrderId
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay payment is linked to a different order.",
-        },
-        { status: 400 }
+    if (razorpayPayment.status !== "captured") {
+      return errorResponse(
+        "Razorpay payment has not been captured.",
+        400
       );
     }
 
-    // =========================================================
-    // 18. VERIFY PAYMENT STATUS
-    // =========================================================
-
-    if (
-      razorpayPayment.status !== "captured"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            `Razorpay payment is not captured. Current status: ${razorpayPayment.status}.`,
-        },
-        { status: 400 }
+    // B: Require INR. Missing currency is rejected too.
+    if (razorpayPayment.currency !== "INR") {
+      return errorResponse(
+        "Razorpay payment currency must be INR.",
+        400
       );
     }
 
-    // =========================================================
-    // 19. VERIFY CURRENCY
-    // =========================================================
-
-    if (
-      razorpayPayment.currency &&
-      razorpayPayment.currency !== "INR"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay payment currency is invalid.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // =========================================================
-    // 20. VERIFY ORDER
-    // =========================================================
-
-    const order =
-      await ProductOrder.findById(
-        existingPayment.productOrder
-      );
+    // 9. Validate the product order and outstanding balance.
+    const order = await ProductOrder.findById(
+      existingPayment.productOrder
+    );
 
     if (!order) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Product order not found.",
-        },
-        { status: 404 }
-      );
+      return errorResponse("Product order not found.", 404);
     }
-
-    // =========================================================
-    // 21. ORDER OWNERSHIP
-    // =========================================================
 
     if (
       !order.user ||
-      order.user.toString() !==
-        session.user.id
+      order.user.toString() !== session.user.id
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "You are not allowed to update this order.",
-        },
-        { status: 403 }
+      return errorResponse(
+        "You are not allowed to update this order.",
+        403
       );
     }
 
-    // =========================================================
-    // 22. CALCULATE REMAINING AMOUNT
-    // =========================================================
-
-    const totalAmount =
-      Number(order.totalAmount || 0);
-
-    const initialPaidAmount =
-      Number(order.initialPaidAmount || 0);
-
-    const finalPaidAmount =
-      Number(order.finalPaidAmount || 0);
-
-    if (
-      !Number.isFinite(totalAmount) ||
-      totalAmount < 0 ||
-      !Number.isFinite(initialPaidAmount) ||
-      initialPaidAmount < 0 ||
-      !Number.isFinite(finalPaidAmount) ||
-      finalPaidAmount < 0
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Product order payment amounts are invalid.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const remainingAmount = Math.max(
-      totalAmount -
-        initialPaidAmount -
-        finalPaidAmount,
-      0
+    const totalAmount = Number(order.totalAmount);
+    const initialPaidAmount = Number(
+      order.initialPaidAmount || 0
     );
-
-    // =========================================================
-    // 23. ORDER ALREADY PAID
-    // =========================================================
-
-    if (remainingAmount <= 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "There is no remaining amount for this order.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // =========================================================
-    // 24. VERIFY DATABASE PAYMENT AMOUNT
-    // =========================================================
-
-    const paymentAmount =
-      normalizeRazorpayAmount(
-        existingPayment.amount
-      );
+    const finalPaidAmount = Number(
+      order.finalPaidAmount || 0
+    );
+    const paymentAmount = Number(existingPayment.amount);
 
     if (
-      paymentAmount === null ||
+      !validMoney(totalAmount) ||
+      totalAmount <= 0 ||
+      !validMoney(initialPaidAmount) ||
+      !validMoney(finalPaidAmount) ||
+      !validMoney(paymentAmount) ||
       paymentAmount <= 0
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Stored payment amount is invalid.",
-        },
-        { status: 400 }
+      return errorResponse(
+        "Product order payment amounts are invalid.",
+        400
+      );
+    }
+
+    const remainingAmount = Number(
+      (
+        totalAmount -
+        initialPaidAmount -
+        finalPaidAmount
+      ).toFixed(2)
+    );
+
+    if (remainingAmount <= 0) {
+      return errorResponse(
+        "There is no remaining amount for this order.",
+        409
+      );
+    }
+
+    if (paymentAmount !== remainingAmount) {
+      return errorResponse(
+        "Payment amount does not match the remaining order amount.",
+        400
       );
     }
 
     if (
-      paymentAmount !== remainingAmount
+      Number(razorpayPayment.amount) !==
+      Math.round(paymentAmount * 100)
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Payment amount does not match the remaining order amount.",
-        },
-        { status: 400 }
+      return errorResponse(
+        "Razorpay payment amount does not match the expected amount.",
+        400
       );
     }
 
-    // =========================================================
-    // 25. VERIFY RAZORPAY AMOUNT
-    //
-    // Razorpay stores amount in paise.
-    // Example:
-    // ₹500 -> 50000 paise
-    // =========================================================
-
-    const razorpayAmount =
-      Number(razorpayPayment.amount);
-
-    if (
-      !Number.isFinite(razorpayAmount) ||
-      razorpayAmount <= 0
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay payment amount is invalid.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const expectedRazorpayAmount =
-      Math.round(paymentAmount * 100);
-
-    if (
-      razorpayAmount !==
-      expectedRazorpayAmount
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Razorpay payment amount does not match the expected amount.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // =========================================================
-    // 26. START TRANSACTION
-    // =========================================================
-
+    // 10. Update both records atomically.
     dbSession = await mongoose.startSession();
 
     let transactionResult = null;
 
-    await dbSession.withTransaction(
-      async () => {
-        // =====================================================
-        // RE-FETCH PAYMENT INSIDE TRANSACTION
-        // =====================================================
+    await dbSession.withTransaction(async () => {
+      // Reset on every transaction retry.
+      transactionResult = null;
 
-        const payment =
-          await Payment.findById(
-            paymentId
-          ).session(dbSession);
+      const payment = await Payment.findById(paymentId)
+        .session(dbSession);
 
-        if (!payment) {
-          throw new Error(
-            "Payment record not found."
-          );
+      if (!payment) {
+        throw new Error("PAYMENT_NOT_FOUND");
+      }
+
+      if (
+        !payment.user ||
+        payment.user.toString() !== session.user.id ||
+        payment.paymentType !== "product" ||
+        payment.method !== "upi" ||
+        payment.gatewayOrderId !== razorpayOrderId
+      ) {
+        throw new Error("PAYMENT_MISMATCH");
+      }
+
+      // C: Check the submitted Razorpay payment ID again
+      // inside the transaction before returning idempotent success.
+      if (payment.status === "paid") {
+        if (payment.gatewayPaymentId !== razorpayPaymentId) {
+          throw new Error("PAYMENT_ID_CONFLICT");
         }
-
-        // =====================================================
-        // CONCURRENT REQUEST / IDEMPOTENCY CHECK
-        // =====================================================
-
-        if (payment.status === "paid") {
-          transactionResult = {
-            alreadyProcessed: true,
-            payment,
-          };
-
-          return;
-        }
-
-        if (payment.status !== "pending") {
-          throw new Error(
-            `Payment is already ${payment.status}.`
-          );
-        }
-
-        // =====================================================
-        // RECHECK PAYMENT OWNERSHIP
-        // =====================================================
-
-        if (
-          !payment.user ||
-          payment.user.toString() !==
-            session.user.id
-        ) {
-          throw new Error(
-            "You are not allowed to verify this payment."
-          );
-        }
-
-        // =====================================================
-        // RECHECK PAYMENT TYPE
-        // =====================================================
-
-        if (
-          payment.paymentType !== "product"
-        ) {
-          throw new Error(
-            "Invalid payment type."
-          );
-        }
-
-        // =====================================================
-        // RECHECK PAYMENT METHOD
-        // =====================================================
-
-        if (payment.method !== "upi") {
-          throw new Error(
-            "This payment is not a UPI payment."
-          );
-        }
-
-        // =====================================================
-        // RECHECK RAZORPAY ORDER
-        // =====================================================
-
-        if (
-          payment.gatewayOrderId !==
-          razorpayOrderId
-        ) {
-          throw new Error(
-            "Razorpay order ID does not match."
-          );
-        }
-
-        // =====================================================
-        // RE-FETCH PRODUCT ORDER
-        // =====================================================
-
-        const currentOrder =
-          await ProductOrder.findById(
-            payment.productOrder
-          ).session(dbSession);
-
-        if (!currentOrder) {
-          throw new Error(
-            "Product order not found."
-          );
-        }
-
-        // =====================================================
-        // RECHECK ORDER OWNERSHIP
-        // =====================================================
-
-        if (
-          !currentOrder.user ||
-          currentOrder.user.toString() !==
-            session.user.id
-        ) {
-          throw new Error(
-            "You are not allowed to update this order."
-          );
-        }
-
-        // =====================================================
-        // RECHECK ORDER AMOUNTS
-        // =====================================================
-
-        const currentTotalAmount =
-          Number(
-            currentOrder.totalAmount || 0
-          );
-
-        const currentInitialPaidAmount =
-          Number(
-            currentOrder.initialPaidAmount || 0
-          );
-
-        const currentFinalPaidAmount =
-          Number(
-            currentOrder.finalPaidAmount || 0
-          );
-
-        const currentRemainingAmount =
-          Math.max(
-            currentTotalAmount -
-              currentInitialPaidAmount -
-              currentFinalPaidAmount,
-            0
-          );
-
-        if (
-          currentRemainingAmount <= 0
-        ) {
-          throw new Error(
-            "There is no remaining amount for this order."
-          );
-        }
-
-        // =====================================================
-        // VERIFY PAYMENT AMOUNT AGAIN
-        // =====================================================
-
-        const currentPaymentAmount =
-          Number(payment.amount);
-
-        if (
-          !Number.isFinite(
-            currentPaymentAmount
-          ) ||
-          currentPaymentAmount !==
-            currentRemainingAmount
-        ) {
-          throw new Error(
-            "Payment amount does not match the remaining order amount."
-          );
-        }
-
-        // =====================================================
-        // VERIFY RAZORPAY AMOUNT AGAIN
-        // =====================================================
-
-        if (
-          razorpayAmount !==
-          Math.round(
-            currentPaymentAmount * 100
-          )
-        ) {
-          throw new Error(
-            "Razorpay payment amount does not match the expected amount."
-          );
-        }
-
-        // =====================================================
-        // MARK PAYMENT PAID
-        // =====================================================
-
-        payment.status = "paid";
-
-        payment.gatewayPaymentId =
-          razorpayPaymentId;
-
-        payment.paidAt = new Date();
-
-        payment.transactionId =
-          payment.transactionId ||
-          razorpayPaymentId;
-
-        // =====================================================
-        // UPDATE PRODUCT ORDER
-        // =====================================================
-
-        currentOrder.finalPaymentMethod =
-          "upi";
-
-        currentOrder.finalPaidAmount =
-          Number(
-            currentOrder.finalPaidAmount || 0
-          ) + currentPaymentAmount;
-
-        currentOrder.finalPaymentStatus =
-          "paid";
-
-        currentOrder.remainingAmount = 0;
-
-        currentOrder.paymentStatus =
-          "paid";
-
-        currentOrder.finalPaidAt =
-          new Date();
-
-        // =====================================================
-        // SAVE BOTH INSIDE SAME TRANSACTION
-        // =====================================================
-
-        await payment.save({
-          session: dbSession,
-        });
-
-        await currentOrder.save({
-          session: dbSession,
-        });
 
         transactionResult = {
-          alreadyProcessed: false,
+          alreadyProcessed: true,
           payment,
-          order: currentOrder,
-          amount: currentPaymentAmount,
         };
-      }
-    );
 
-    // =========================================================
-    // CLOSE DATABASE SESSION
-    // =========================================================
+        return;
+      }
+
+      if (payment.status !== "pending") {
+        throw new Error("PAYMENT_NOT_PENDING");
+      }
+
+      const currentOrder = await ProductOrder.findById(
+        payment.productOrder
+      ).session(dbSession);
+
+      if (!currentOrder) {
+        throw new Error("ORDER_NOT_FOUND");
+      }
+
+      if (
+        !currentOrder.user ||
+        currentOrder.user.toString() !== session.user.id
+      ) {
+        throw new Error("ORDER_OWNERSHIP");
+      }
+
+      const currentTotal = Number(currentOrder.totalAmount);
+      const currentInitialPaid = Number(
+        currentOrder.initialPaidAmount || 0
+      );
+      const currentFinalPaid = Number(
+        currentOrder.finalPaidAmount || 0
+      );
+      const currentPaymentAmount = Number(payment.amount);
+
+      if (
+        !validMoney(currentTotal) ||
+        !validMoney(currentInitialPaid) ||
+        !validMoney(currentFinalPaid) ||
+        !validMoney(currentPaymentAmount) ||
+        currentPaymentAmount <= 0
+      ) {
+        throw new Error("AMOUNT_INVALID");
+      }
+
+      const currentRemaining = Number(
+        (
+          currentTotal -
+          currentInitialPaid -
+          currentFinalPaid
+        ).toFixed(2)
+      );
+
+      if (currentRemaining <= 0) {
+        throw new Error("NO_BALANCE");
+      }
+
+      if (currentPaymentAmount !== currentRemaining) {
+        throw new Error("AMOUNT_MISMATCH");
+      }
+
+      if (
+        Number(razorpayPayment.amount) !==
+        Math.round(currentPaymentAmount * 100)
+      ) {
+        throw new Error("AMOUNT_MISMATCH");
+      }
+
+      const now = new Date();
+
+      payment.status = "paid";
+      payment.gatewayPaymentId = razorpayPaymentId;
+      payment.paidAt = now;
+      payment.transactionId =
+        payment.transactionId || razorpayPaymentId;
+
+      currentOrder.finalPaymentMethod = "upi";
+      currentOrder.finalPaidAmount =
+        currentFinalPaid + currentPaymentAmount;
+      currentOrder.finalPaymentStatus = "paid";
+      currentOrder.remainingAmount = 0;
+      currentOrder.paymentStatus = "paid";
+      currentOrder.finalPaidAt = now;
+
+      await payment.save({ session: dbSession });
+      await currentOrder.save({ session: dbSession });
+
+      transactionResult = {
+        alreadyProcessed: false,
+        payment,
+        order: currentOrder,
+        amount: currentPaymentAmount,
+      };
+    });
 
     await dbSession.endSession();
     dbSession = null;
 
-    // =========================================================
-    // ALREADY PROCESSED
-    // =========================================================
-
-    if (
-      transactionResult?.alreadyProcessed
-    ) {
-      return NextResponse.json(
-        {
-          success: true,
-          alreadyProcessed: true,
-          message:
-            "Payment was already verified.",
-          payment: {
-            id:
-              transactionResult.payment
-                ._id,
-            status:
-              transactionResult.payment
-                .status,
-            amount:
-              transactionResult.payment
-                .amount,
-            gatewayPaymentId:
-              transactionResult.payment
-                .gatewayPaymentId,
-            paidAt:
-              transactionResult.payment
-                .paidAt,
-          },
+    if (transactionResult?.alreadyProcessed) {
+      return NextResponse.json({
+        success: true,
+        alreadyProcessed: true,
+        message: "Payment already verified.",
+        payment: {
+          id: transactionResult.payment._id.toString(),
+          status: transactionResult.payment.status,
+          gatewayPaymentId:
+            transactionResult.payment.gatewayPaymentId,
+          paidAt: transactionResult.payment.paidAt,
         },
-        { status: 200 }
-      );
+      });
     }
 
-    // =========================================================
-    // 27. CREATE NOTIFICATION
-    //
-    // Notification failure must NOT undo the successful
-    // payment transaction.
-    // =========================================================
-
+    // 11. Notify after the transaction commits.
     try {
       await createNotification({
-        user:
-          transactionResult.order.user,
-
+        user: transactionResult.order.user,
         type: "payment",
-
         title: "Payment Successful",
-
-        message: `Your final payment of ₹${Number(
-          transactionResult.amount
-        ).toLocaleString(
-          "en-IN"
-        )} for your product order has been received successfully.`,
-
-        productOrder:
-          transactionResult.order._id,
-
+        message: `Your final payment of ₹${transactionResult.amount.toLocaleString("en-IN")} for your product order has been received successfully.`,
+        productOrder: transactionResult.order._id,
         link: `/orders/${transactionResult.order._id}`,
       });
     } catch (notificationError) {
       console.error(
-        "CREATE FINAL PAYMENT NOTIFICATION ERROR:",
+        "FINAL PRODUCT PAYMENT NOTIFICATION ERROR:",
         notificationError
       );
     }
 
-    // =========================================================
-    // 28. SUCCESS
-    // =========================================================
-
-    return NextResponse.json(
-      {
-        success: true,
-
-        message:
-          "Payment verified successfully.",
-
-        payment: {
-          id:
-            transactionResult.payment
-              ._id,
-
-          status:
-            transactionResult.payment
-              .status,
-
-          amount:
-            transactionResult.payment
-              .amount,
-
-          method:
-            transactionResult.payment
-              .method,
-
-          paymentType:
-            transactionResult.payment
-              .paymentType,
-
-          gatewayOrderId:
-            transactionResult.payment
-              .gatewayOrderId,
-
-          gatewayPaymentId:
-            transactionResult.payment
-              .gatewayPaymentId,
-
-          transactionId:
-            transactionResult.payment
-              .transactionId,
-
-          paidAt:
-            transactionResult.payment
-              .paidAt,
-        },
-
-        order: {
-          id:
-            transactionResult.order
-              ._id,
-
-          paymentStatus:
-            transactionResult.order
-              .paymentStatus,
-
-          finalPaymentStatus:
-            transactionResult.order
-              .finalPaymentStatus,
-
-          finalPaidAmount:
-            transactionResult.order
-              .finalPaidAmount,
-
-          remainingAmount:
-            transactionResult.order
-              .remainingAmount,
-        },
+    return NextResponse.json({
+      success: true,
+      message: "Payment verified successfully.",
+      payment: {
+        id: transactionResult.payment._id.toString(),
+        status: transactionResult.payment.status,
+        amount: transactionResult.payment.amount,
+        method: transactionResult.payment.method,
+        paymentType: transactionResult.payment.paymentType,
+        gatewayOrderId: transactionResult.payment.gatewayOrderId,
+        gatewayPaymentId:
+          transactionResult.payment.gatewayPaymentId,
+        transactionId: transactionResult.payment.transactionId,
+        paidAt: transactionResult.payment.paidAt,
       },
-      { status: 200 }
-    );
+      order: {
+        id: transactionResult.order._id.toString(),
+        paymentStatus: transactionResult.order.paymentStatus,
+        finalPaymentStatus:
+          transactionResult.order.finalPaymentStatus,
+        finalPaidAmount: transactionResult.order.finalPaidAmount,
+        remainingAmount: transactionResult.order.remainingAmount,
+      },
+    });
   } catch (error) {
-    console.error(
-      "FINAL PRODUCT PAYMENT VERIFY ERROR:",
-      error
+    console.error("FINAL PRODUCT PAYMENT VERIFY ERROR:", error);
+
+    const errors = {
+      PAYMENT_NOT_FOUND: ["Payment record not found.", 404],
+      PAYMENT_MISMATCH: ["Payment details do not match.", 400],
+      PAYMENT_ID_CONFLICT: [
+        "Payment was already completed with a different payment ID.",
+        409,
+      ],
+      PAYMENT_NOT_PENDING: ["Payment is no longer pending.", 409],
+      ORDER_NOT_FOUND: ["Product order not found.", 404],
+      ORDER_OWNERSHIP: ["You are not allowed to update this order.", 403],
+      AMOUNT_INVALID: ["Product order payment amounts are invalid.", 400],
+      NO_BALANCE: ["There is no remaining amount for this order.", 409],
+      AMOUNT_MISMATCH: [
+        "Payment amount does not match the remaining order amount.",
+        400,
+      ],
+    };
+
+    const known = errors[error?.message];
+
+    if (known) {
+      return errorResponse(known[0], known[1]);
+    }
+
+    return errorResponse(
+      "Payment verification failed. Please try again or contact the gym administrator.",
+      500
     );
-
-    // =========================================================
-    // CLOSE SESSION ON ERROR
-    // =========================================================
-
+  } finally {
     if (dbSession) {
       try {
         await dbSession.endSession();
@@ -1009,49 +557,5 @@ export async function POST(request) {
         );
       }
     }
-
-    // =========================================================
-    // KNOWN ERRORS
-    // =========================================================
-
-    const knownErrors = [
-      "Payment record not found.",
-      "Invalid payment type.",
-      "This payment is not a UPI payment.",
-      "Razorpay order ID does not match.",
-      "You are not allowed to verify this payment.",
-      "Product order not found.",
-      "You are not allowed to update this order.",
-      "There is no remaining amount for this order.",
-      "Payment amount does not match the remaining order amount.",
-      "Razorpay payment amount does not match the expected amount.",
-    ];
-
-    if (
-      knownErrors.includes(
-        error?.message
-      ) ||
-      error?.message?.startsWith(
-        "Payment is already "
-      )
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: error.message,
-        },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          error?.message ||
-          "Payment verification failed.",
-      },
-      { status: 500 }
-    );
   }
 }

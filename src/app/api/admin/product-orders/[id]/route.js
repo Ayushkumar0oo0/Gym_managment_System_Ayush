@@ -1,141 +1,104 @@
+
+import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { connectDB } from "@/lib/mongodb";
 import { createNotification } from "@/lib/notifications";
 
-import User from "@/models/User";
 import ProductOrder from "@/models/ProductOrder";
 import Payment from "@/models/Payment";
 
+export const dynamic = "force-dynamic";
+
+class RouteError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function jsonError(message, status) {
+  return NextResponse.json(
+    { success: false, message },
+    { status }
+  );
+}
+
+function calculateAmounts(order) {
+  const totalAmount = Number(order.totalAmount);
+  const initialPaidAmount = Number(order.initialPaidAmount || 0);
+  const finalPaidAmount = Number(order.finalPaidAmount || 0);
+
+  const totalPaid = initialPaidAmount + finalPaidAmount;
+  const remainingAmount = Math.max(totalAmount - totalPaid, 0);
+
+  return {
+    totalAmount,
+    initialPaidAmount,
+    finalPaidAmount,
+    totalPaid,
+    remainingAmount,
+  };
+}
+
+async function requireAdmin() {
+  const session = await auth();
+
+  if (!session?.user) {
+    throw new RouteError("You must be logged in.", 401);
+  }
+
+  if (session.user.role !== "admin" || !session.user.id) {
+    throw new RouteError("Access denied.", 403);
+  }
+
+  return session;
+}
+
 // =====================================================
-// GET - ADMIN PRODUCT ORDER
+// GET - ADMIN PRODUCT ORDER DETAILS
 // =====================================================
 
 export async function GET(request, { params }) {
   try {
-    // --------------------------------
-    // Authentication
-    // --------------------------------
-
-    const session = await auth();
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "You must be logged in.",
-        },
-        { status: 401 }
-      );
-    }
-
-    // --------------------------------
-    // Admin only
-    // --------------------------------
-
-    if (session.user.role !== "admin") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Access denied.",
-        },
-        { status: 403 }
-      );
-    }
+    await requireAdmin();
 
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Order ID is required.",
-        },
-        { status: 400 }
-      );
+    if (!mongoose.isValidObjectId(id)) {
+      return jsonError("Invalid product order ID.", 400);
     }
 
     await connectDB();
 
-    // --------------------------------
-    // Find order
-    // --------------------------------
-
     const order = await ProductOrder.findById(id)
-      .populate(
-        "user",
-        "name email phone"
-      )
+      .populate("user", "name email phone")
       .populate(
         "product",
         "name description imageUrl originalPrice price"
       )
-      .populate(
-        "initialPaymentConfirmedBy",
-        "name email"
-      )
-      .populate(
-        "finalPaymentConfirmedBy",
-        "name email"
-      )
+      .populate("initialPaymentConfirmedBy", "name email")
+      .populate("finalPaymentConfirmedBy", "name email")
       .lean();
 
     if (!order) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Order not found.",
-        },
-        { status: 404 }
-      );
+      return jsonError("Product order not found.", 404);
     }
 
-    // --------------------------------
-    // Calculate payment
-    // --------------------------------
-
-    const totalAmount =
-      Number(order.totalAmount) || 0;
-
-    const initialPaidAmount =
-      Number(order.initialPaidAmount) || 0;
-
-    const finalPaidAmount =
-      Number(order.finalPaidAmount) || 0;
-
-    const totalPaid =
-      initialPaidAmount + finalPaidAmount;
-
-    const remainingAmount = Math.max(
-      totalAmount - totalPaid,
-      0
-    );
-
-    return NextResponse.json(
-      {
-        success: true,
-
-        order: {
-          ...order,
-          totalPaid,
-          remainingAmount,
-        },
+    return NextResponse.json({
+      success: true,
+      order: {
+        ...order,
+        ...calculateAmounts(order),
       },
-      { status: 200 }
-    );
+    });
   } catch (error) {
-    console.error(
-      "ADMIN PRODUCT ORDER GET ERROR:",
-      error
-    );
+    console.error("ADMIN PRODUCT ORDER GET ERROR:", error);
 
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to load product order.",
-      },
-      { status: 500 }
+    return jsonError(
+      error.status ? error.message : "Failed to load product order.",
+      error.status || 500
     );
   }
 }
@@ -145,757 +108,457 @@ export async function GET(request, { params }) {
 // =====================================================
 
 export async function PATCH(request, { params }) {
+  let session;
+  let notification = null;
+  let result = null;
+
   try {
-    // --------------------------------
-    // Authentication
-    // --------------------------------
-
-    const session = await auth();
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "You must be logged in.",
-        },
-        { status: 401 }
-      );
-    }
-
-    // --------------------------------
-    // Admin only
-    // --------------------------------
-
-    if (session.user.role !== "admin") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Access denied.",
-        },
-        { status: 403 }
-      );
-    }
+    session = await requireAdmin();
 
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Order ID is required.",
-        },
-        { status: 400 }
-      );
+    if (!mongoose.isValidObjectId(id)) {
+      return jsonError("Invalid product order ID.", 400);
     }
 
-    // --------------------------------
-    // Read request
-    // --------------------------------
+    let body;
 
-    const body = await request.json();
+    try {
+      body = await request.json();
+    } catch {
+      return jsonError("Invalid JSON request body.", 400);
+    }
 
     const action = body?.action;
 
-    if (!action) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Action is required.",
-        },
-        { status: 400 }
-      );
+    const allowedActions = [
+      "confirm_initial_cash",
+      "mark_ordered",
+      "mark_ready_for_pickup",
+      "confirm_final_cash",
+      "mark_delivered",
+      "cancel",
+    ];
+
+    if (!allowedActions.includes(action)) {
+      return jsonError("Invalid product order action.", 400);
     }
 
     await connectDB();
 
-    // --------------------------------
-    // Find order
-    // --------------------------------
+    const mongoSession = await mongoose.startSession();
 
-    const order =
-      await ProductOrder.findById(id);
+    try {
+      await mongoSession.withTransaction(async () => {
+        notification = null;
 
-    if (!order) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Order not found.",
-        },
-        { status: 404 }
-      );
-    }
-
-    // =================================================
-    // 1. CONFIRM INITIAL CASH PAYMENT
-    // =================================================
-
-    if (action === "confirm_initial_cash") {
-      if (
-        order.initialPaymentMethod !== "cash"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Initial payment method is not cash.",
-          },
-          { status: 400 }
-        );
-      }
-
-      if (
-        order.initialPaymentStatus === "paid"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Initial payment is already confirmed.",
-          },
-          { status: 400 }
-        );
-      }
-
-      if (
-        order.orderStatus === "cancelled"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Cancelled orders cannot receive payments.",
-          },
-          { status: 400 }
-        );
-      }
-
-      const initialAmount =
-        Number(order.initialPaymentAmount) || 0;
-
-      if (initialAmount <= 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Invalid initial payment amount.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------
-      // Prevent duplicate cash payment
-      // --------------------------------
-
-      const existingPayment =
-        await Payment.findOne({
-          user: order.user,
-          productOrder: order._id,
-          paymentType: "product",
-          method: "cash",
-          notes: "Initial product order payment.",
-          status: "paid",
-        });
-
-      if (existingPayment) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Initial cash payment has already been recorded.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------
-      // Create Payment record
-      // --------------------------------
-
-      await Payment.create({
-        user: order.user,
-        productOrder: order._id,
-        paymentType: "product",
-        amount: initialAmount,
-        method: "cash",
-        status: "paid",
-        paidAt: new Date(),
-        recordedBy: session.user.id,
-        notes: "Initial product order payment.",
-      });
-
-      // --------------------------------
-      // Update order
-      // --------------------------------
-
-      order.initialPaidAmount = initialAmount;
-
-      order.initialPaymentStatus = "paid";
-
-      order.initialPaidAt = new Date();
-
-      order.initialPaymentConfirmedBy =
-        session.user.id;
-
-      order.remainingAmount = Math.max(
-        Number(order.totalAmount) -
-          initialAmount -
-          Number(order.finalPaidAmount || 0),
-        0
-      );
-
-      if (order.remainingAmount === 0) {
-        order.paymentStatus = "paid";
-      } else {
-        order.paymentStatus = "partially_paid";
-      }
-
-      order.orderStatus = "ordered";
-
-      await order.save();
-
-      // --------------------------------
-      // Create payment notification
-      // --------------------------------
-
-      try {
-        await createNotification({
-          user: order.user,
-
-          type: "payment",
-
-          title: "Initial Cash Payment Confirmed",
-
-          message: `Your initial cash payment of ₹${initialAmount.toLocaleString(
-            "en-IN"
-          )} has been confirmed by the gym. Your product order has been placed.`,
-
-          productOrder: order._id,
-
-          link: `/orders/${order._id}`,
-        });
-      } catch (notificationError) {
-        console.error(
-          "CREATE INITIAL CASH PAYMENT NOTIFICATION ERROR:",
-          notificationError
-        );
-      }
-
-      return NextResponse.json(
-        {
-          success: true,
-          message:
-            "Initial cash payment confirmed.",
-        },
-        { status: 200 }
-      );
-    }
-
-    // =================================================
-    // 2. MARK ORDERED
-    // =================================================
-
-    if (action === "mark_ordered") {
-      if (
-        order.initialPaymentStatus !== "paid"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Initial payment must be paid before ordering the product.",
-          },
-          { status: 400 }
-        );
-      }
-
-      if (order.orderStatus !== "ordered") {
-        return NextResponse.json(
-          {
-            success: true,
-            message:
-              "Order is already marked as ordered.",
-          },
-          { status: 200 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          success: true,
-          message:
-            "Order is already marked as ordered.",
-        },
-        { status: 200 }
-      );
-    }
-
-    // =================================================
-    // 3. MARK READY FOR PICKUP
-    // =================================================
-
-    if (
-      action === "mark_ready_for_pickup"
-    ) {
-      // --------------------------------
-      // Validate payment
-      // --------------------------------
-
-      if (
-        order.initialPaymentStatus !== "paid"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Initial payment must be paid first.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------
-      // Validate status
-      // --------------------------------
-
-      if (
-        order.orderStatus !== "ordered"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Only ordered products can be marked ready for pickup.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------
-      // Mark ready
-      // --------------------------------
-
-      order.orderStatus =
-        "ready_for_pickup";
-
-      order.readyForPickupAt =
-        new Date();
-
-      await order.save();
-
-      // --------------------------------
-      // Calculate remaining amount
-      // --------------------------------
-
-      const remainingAmount =
-        Math.max(
-          Number(order.totalAmount) -
-            Number(
-              order.initialPaidAmount || 0
-            ) -
-            Number(
-              order.finalPaidAmount || 0
-            ),
-          0
+        const order = await ProductOrder.findById(id).session(
+          mongoSession
         );
 
-      // --------------------------------
-      // Product name
-      // --------------------------------
+        if (!order) {
+          throw new RouteError("Product order not found.", 404);
+        }
 
-      let productName = "your product";
+        const now = new Date();
 
-      try {
-        const populatedOrder =
-          await ProductOrder.findById(
-            order._id
-          )
-            .populate("product", "name")
-            .lean();
+        const {
+          totalAmount,
+          initialPaidAmount,
+          finalPaidAmount,
+          totalPaid,
+          remainingAmount,
+        } = calculateAmounts(order);
 
         if (
-          populatedOrder?.product?.name
+          !Number.isFinite(totalAmount) ||
+          totalAmount <= 0 ||
+          !Number.isFinite(initialPaidAmount) ||
+          !Number.isFinite(finalPaidAmount) ||
+          initialPaidAmount < 0 ||
+          finalPaidAmount < 0 ||
+          totalPaid > totalAmount
         ) {
-          productName =
-            populatedOrder.product.name;
+          throw new RouteError(
+            "Product order has invalid payment amounts.",
+            409
+          );
         }
-      } catch (productError) {
-        console.error(
-          "PRODUCT NAME LOAD ERROR:",
-          productError
-        );
-      }
 
-      // --------------------------------
-      // Create notification
-      // --------------------------------
+        // -------------------------------------------------
+        // 1. CONFIRM INITIAL CASH PAYMENT
+        // -------------------------------------------------
 
-      try {
-        await createNotification({
-          user: order.user,
+        if (action === "confirm_initial_cash") {
+          if (order.orderStatus === "cancelled") {
+            throw new RouteError(
+              "Cancelled orders cannot receive payments."
+            );
+          }
 
-          type: "product_ready",
+          if (order.initialPaymentMethod !== "cash") {
+            throw new RouteError(
+              "Initial payment method is not cash."
+            );
+          }
 
-          title:
-            "Product Ready for Pickup",
+          if (order.initialPaymentStatus === "paid") {
+            throw new RouteError(
+              "Initial payment is already confirmed."
+            );
+          }
 
-          message:
-            remainingAmount > 0
-              ? `Your ${productName} is ready for pickup at the gym. Remaining amount: ₹${remainingAmount.toLocaleString(
-                  "en-IN"
-                )}.`
-              : `Your ${productName} is ready for pickup at the gym.`,
+          if (order.initialPaymentStatus !== "pending") {
+            throw new RouteError(
+              "Initial payment is not awaiting confirmation."
+            );
+          }
 
-          productOrder: order._id,
+          if (order.orderStatus !== "pending_payment") {
+            throw new RouteError(
+              "Initial payment can only be confirmed for an order awaiting payment."
+            );
+          }
 
-          link: `/orders/${order._id}`,
-        });
-      } catch (notificationError) {
-        console.error(
-          "CREATE PRODUCT READY NOTIFICATION ERROR:",
-          notificationError
-        );
-      }
+          const initialAmount = Number(order.initialPaymentAmount);
 
-      return NextResponse.json(
-        {
-          success: true,
-          message:
-            "Product marked as ready for pickup and member notified.",
-        },
-        { status: 200 }
-      );
-    }
+          if (
+            !Number.isFinite(initialAmount) ||
+            initialAmount <= 0 ||
+            initialAmount > totalAmount
+          ) {
+            throw new RouteError("Invalid initial payment amount.");
+          }
 
-    // =================================================
-    // 4. CONFIRM FINAL CASH PAYMENT
-    // =================================================
+          const existingPayment = await Payment.findOne({
+            user: order.user,
+            productOrder: order._id,
+            paymentType: "product",
+            method: "cash",
+            notes: "Initial product order payment.",
+            status: "paid",
+          }).session(mongoSession);
 
-    if (
-      action === "confirm_final_cash"
-    ) {
-      // --------------------------------
-      // Validate status
-      // --------------------------------
+          if (existingPayment) {
+            throw new RouteError(
+              "Initial cash payment has already been recorded."
+            );
+          }
 
-      if (
-        order.orderStatus !==
-        "ready_for_pickup"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
+          await Payment.create(
+            [
+              {
+                user: order.user,
+                productOrder: order._id,
+                paymentType: "product",
+                amount: initialAmount,
+                method: "cash",
+                status: "paid",
+                paidAt: now,
+                recordedBy: session.user.id,
+                notes: "Initial product order payment.",
+              },
+            ],
+            { session: mongoSession }
+          );
+
+          order.initialPaidAmount = initialAmount;
+          order.initialPaymentStatus = "paid";
+          order.initialPaidAt = now;
+          order.initialPaymentConfirmedBy = session.user.id;
+
+          order.remainingAmount = Math.max(
+            totalAmount - initialAmount - finalPaidAmount,
+            0
+          );
+
+          order.paymentStatus =
+            order.remainingAmount === 0 ? "paid" : "partially_paid";
+
+          order.orderStatus = "ordered";
+
+          await order.save({ session: mongoSession });
+
+          notification = {
+            user: order.user,
+            type: "payment",
+            title: "Initial Cash Payment Confirmed",
+            message: `Your initial cash payment of ₹${initialAmount.toLocaleString(
+              "en-IN"
+            )} has been confirmed. Your product order has been placed.`,
+            productOrder: order._id,
+            link: `/orders/${order._id}`,
+          };
+
+          result = {
+            success: true,
+            message: "Initial cash payment confirmed.",
+          };
+
+          return;
+        }
+
+        // -------------------------------------------------
+        // 2. MARK ORDERED
+        // -------------------------------------------------
+
+        if (action === "mark_ordered") {
+          if (order.orderStatus === "ordered") {
+            result = {
+              success: true,
+              message: "Order is already marked as ordered.",
+            };
+            return;
+          }
+
+          if (order.orderStatus !== "pending_payment") {
+            throw new RouteError(
+              "Only an order awaiting payment can be marked ordered."
+            );
+          }
+
+          if (order.initialPaymentStatus !== "paid") {
+            throw new RouteError(
+              "Initial payment must be paid before ordering the product."
+            );
+          }
+
+          order.orderStatus = "ordered";
+          await order.save({ session: mongoSession });
+
+          result = {
+            success: true,
+            message: "Product order marked as ordered.",
+          };
+
+          return;
+        }
+
+        // -------------------------------------------------
+        // 3. MARK READY FOR PICKUP
+        // -------------------------------------------------
+
+        if (action === "mark_ready_for_pickup") {
+          if (order.orderStatus !== "ordered") {
+            throw new RouteError(
+              "Only ordered products can be marked ready for pickup."
+            );
+          }
+
+          if (order.initialPaymentStatus !== "paid") {
+            throw new RouteError(
+              "Initial payment must be paid first."
+            );
+          }
+
+          order.orderStatus = "ready_for_pickup";
+          order.readyForPickupAt = now;
+
+          await order.save({ session: mongoSession });
+
+          notification = {
+            user: order.user,
+            type: "product_ready",
+            title: "Product Ready for Pickup",
             message:
-              "Product must be ready for pickup before final payment.",
-          },
-          { status: 400 }
-        );
-      }
+              remainingAmount > 0
+                ? `Your product is ready for pickup at the gym. Remaining amount: ₹${remainingAmount.toLocaleString(
+                    "en-IN"
+                  )}.`
+                : "Your product is ready for pickup at the gym.",
+            productOrder: order._id,
+            link: `/orders/${order._id}`,
+          };
 
-      // --------------------------------
-      // Check already paid
-      // --------------------------------
-
-      if (
-        order.paymentStatus === "paid"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
+          result = {
+            success: true,
             message:
-              "Order is already fully paid.",
-          },
-          { status: 400 }
-        );
-      }
+              "Product marked as ready for pickup and member notified.",
+          };
 
-      // --------------------------------
-      // Calculate remaining amount
-      // --------------------------------
+          return;
+        }
 
-      const remainingAmount =
-        Math.max(
-          Number(order.totalAmount) -
-            Number(
-              order.initialPaidAmount || 0
-            ) -
-            Number(
-              order.finalPaidAmount || 0
-            ),
-          0
-        );
+        // -------------------------------------------------
+        // 4. CONFIRM FINAL CASH PAYMENT
+        // -------------------------------------------------
 
-      if (remainingAmount <= 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "There is no remaining amount.",
-          },
-          { status: 400 }
-        );
-      }
+        if (action === "confirm_final_cash") {
+          if (order.orderStatus !== "ready_for_pickup") {
+            throw new RouteError(
+              "Product must be ready for pickup before final payment."
+            );
+          }
 
-      // --------------------------------
-      // Final payment must be cash
-      // --------------------------------
+          if (order.initialPaymentStatus !== "paid") {
+            throw new RouteError("Initial payment must be paid first.");
+          }
 
-      if (
-        order.finalPaymentMethod &&
-        order.finalPaymentMethod !== "cash"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Final payment method is not cash.",
-          },
-          { status: 400 }
-        );
-      }
+          if (order.paymentStatus === "paid") {
+            throw new RouteError("Order is already fully paid.");
+          }
 
-      // --------------------------------
-      // Prevent duplicate final cash
-      // --------------------------------
+          if (order.finalPaymentMethod === "upi") {
+            throw new RouteError(
+              "Final payment method is UPI, not cash."
+            );
+          }
 
-      const existingPayment =
-        await Payment.findOne({
-          user: order.user,
-          productOrder: order._id,
-          paymentType: "product",
-          method: "cash",
-          notes: "Final product order payment.",
-          status: "paid",
-        });
+          if (remainingAmount <= 0) {
+            throw new RouteError("There is no remaining amount.");
+          }
 
-      if (existingPayment) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Final cash payment has already been recorded.",
-          },
-          { status: 400 }
-        );
-      }
+          const existingPayment = await Payment.findOne({
+            user: order.user,
+            productOrder: order._id,
+            paymentType: "product",
+            method: "cash",
+            notes: "Final product order payment.",
+            status: "paid",
+          }).session(mongoSession);
 
-      // --------------------------------
-      // Create Payment record
-      // --------------------------------
+          if (existingPayment) {
+            throw new RouteError(
+              "Final cash payment has already been recorded."
+            );
+          }
 
-      await Payment.create({
-        user: order.user,
-        productOrder: order._id,
-        paymentType: "product",
-        amount: remainingAmount,
-        method: "cash",
-        status: "paid",
-        paidAt: new Date(),
-        recordedBy: session.user.id,
-        notes: "Final product order payment.",
+          await Payment.create(
+            [
+              {
+                user: order.user,
+                productOrder: order._id,
+                paymentType: "product",
+                amount: remainingAmount,
+                method: "cash",
+                status: "paid",
+                paidAt: now,
+                recordedBy: session.user.id,
+                notes: "Final product order payment.",
+              },
+            ],
+            { session: mongoSession }
+          );
+
+          order.finalPaymentMethod = "cash";
+          order.finalPaidAmount =
+            Number(order.finalPaidAmount || 0) + remainingAmount;
+          order.finalPaymentStatus = "paid";
+          order.finalPaidAt = now;
+          order.finalPaymentConfirmedBy = session.user.id;
+          order.remainingAmount = 0;
+          order.paymentStatus = "paid";
+
+          await order.save({ session: mongoSession });
+
+          notification = {
+            user: order.user,
+            type: "payment",
+            title: "Final Cash Payment Confirmed",
+            message: `Your final cash payment of ₹${remainingAmount.toLocaleString(
+              "en-IN"
+            )} has been confirmed. Your product order is now fully paid.`,
+            productOrder: order._id,
+            link: `/orders/${order._id}`,
+          };
+
+          result = {
+            success: true,
+            message: "Final cash payment confirmed.",
+          };
+
+          return;
+        }
+
+        // -------------------------------------------------
+        // 5. MARK DELIVERED
+        // -------------------------------------------------
+
+        if (action === "mark_delivered") {
+          if (order.paymentStatus !== "paid" || remainingAmount !== 0) {
+            throw new RouteError(
+              "Full payment is required before delivery."
+            );
+          }
+
+          if (
+            !["ready_for_pickup", "ordered"].includes(
+              order.orderStatus
+            )
+          ) {
+            throw new RouteError(
+              "Order cannot be marked delivered from its current status."
+            );
+          }
+
+          order.orderStatus = "delivered";
+          order.deliveredAt = now;
+
+          await order.save({ session: mongoSession });
+
+          result = {
+            success: true,
+            message: "Product order marked as delivered.",
+          };
+
+          return;
+        }
+
+        // -------------------------------------------------
+        // 6. CANCEL ORDER
+        // -------------------------------------------------
+
+        if (action === "cancel") {
+          if (
+            order.orderStatus === "delivered" ||
+            order.orderStatus === "cancelled"
+          ) {
+            throw new RouteError(
+              "This order cannot be cancelled in its current status."
+            );
+          }
+
+          if (totalPaid > 0 || order.paymentStatus === "paid") {
+            throw new RouteError(
+              "This order has recorded payments. Resolve the refund before cancelling it."
+            );
+          }
+
+          order.orderStatus = "cancelled";
+          await order.save({ session: mongoSession });
+
+          result = {
+            success: true,
+            message: "Product order cancelled.",
+          };
+        }
       });
+    } finally {
+      await mongoSession.endSession();
+    }
 
-      // --------------------------------
-      // Update order
-      // --------------------------------
-
-      order.finalPaymentMethod = "cash";
-
-      order.finalPaidAmount =
-        Number(order.finalPaidAmount || 0) +
-        remainingAmount;
-
-      order.finalPaymentStatus = "paid";
-
-      order.finalPaidAt = new Date();
-
-      order.finalPaymentConfirmedBy =
-        session.user.id;
-
-      order.remainingAmount = 0;
-
-      order.paymentStatus = "paid";
-
-      await order.save();
-
-      // --------------------------------
-      // Create payment notification
-      // --------------------------------
-
+    // Send notifications only after the database transaction commits.
+    if (notification) {
       try {
-        await createNotification({
-          user: order.user,
-
-          type: "payment",
-
-          title: "Final Cash Payment Confirmed",
-
-          message: `Your final cash payment of ₹${remainingAmount.toLocaleString(
-            "en-IN"
-          )} has been confirmed by the gym. Your product order is now fully paid.`,
-
-          productOrder: order._id,
-
-          link: `/orders/${order._id}`,
-        });
+        await createNotification(notification);
       } catch (notificationError) {
         console.error(
-          "CREATE FINAL CASH PAYMENT NOTIFICATION ERROR:",
+          "PRODUCT ORDER NOTIFICATION ERROR:",
           notificationError
         );
       }
-
-      return NextResponse.json(
-        {
-          success: true,
-          message:
-            "Final cash payment confirmed.",
-        },
-        { status: 200 }
-      );
     }
 
-    // =================================================
-    // 5. MARK DELIVERED
-    // =================================================
-
-    if (action === "mark_delivered") {
-      // --------------------------------
-      // Full payment required
-      // --------------------------------
-
-      if (
-        order.paymentStatus !== "paid"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Full payment is required before delivery.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------
-      // Validate status
-      // --------------------------------
-
-      if (
-        order.orderStatus !==
-          "ready_for_pickup" &&
-        order.orderStatus !== "ordered"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Order cannot be marked as delivered from its current state.",
-          },
-          { status: 400 }
-        );
-      }
-
-      order.orderStatus = "delivered";
-
-      order.deliveredAt = new Date();
-
-      await order.save();
-
-      return NextResponse.json(
-        {
-          success: true,
-          message:
-            "Product order marked as delivered.",
-        },
-        { status: 200 }
-      );
-    }
-
-    // =================================================
-    // 6. CANCEL ORDER
-    // =================================================
-
-    if (action === "cancel") {
-      // --------------------------------
-      // Delivered cannot be cancelled
-      // --------------------------------
-
-      if (
-        order.orderStatus === "delivered"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Delivered orders cannot be cancelled.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------
-      // Fully paid needs refund handling
-      // --------------------------------
-
-      if (
-        order.paymentStatus === "paid"
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Fully paid orders require refund handling before cancellation.",
-          },
-          { status: 400 }
-        );
-      }
-
-      order.orderStatus = "cancelled";
-
-      await order.save();
-
-      return NextResponse.json(
-        {
-          success: true,
-          message:
-            "Product order cancelled.",
-        },
-        { status: 200 }
-      );
-    }
-
-    // =================================================
-    // UNKNOWN ACTION
-    // =================================================
-
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "Invalid product order action.",
-      },
-      { status: 400 }
-    );
+    return NextResponse.json(result || {
+      success: true,
+      message: "Product order updated.",
+    });
   } catch (error) {
-    console.error(
-      "ADMIN PRODUCT ORDER PATCH ERROR:",
-      error
-    );
+    console.error("ADMIN PRODUCT ORDER PATCH ERROR:", error);
 
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "Failed to update product order.",
-
-        error:
-          process.env.NODE_ENV ===
-          "development"
-            ? error.message
-            : undefined,
-      },
-      { status: 500 }
+    return jsonError(
+      error.status ? error.message : "Failed to update product order.",
+      error.status || 500
     );
   }
 }

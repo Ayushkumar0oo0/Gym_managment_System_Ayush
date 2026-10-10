@@ -69,10 +69,11 @@ const paymentSchema = new mongoose.Schema(
     // PAYMENT METHOD
     // =========================
     method: {
-      type: String,
-      enum: ["upi", "cash"],
-      required: true,
-    },
+  type: String,
+  enum: ["online", "upi", "cash"],
+  required: true,
+  default: "cash",
+},
 
     // =========================
     // PAYMENT STATUS

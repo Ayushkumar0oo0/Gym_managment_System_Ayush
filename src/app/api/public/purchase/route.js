@@ -218,7 +218,7 @@ export async function POST(request) {
     }
 
     if (
-      !["upi", "cash"].includes(paymentMethod)
+      !["online", "cash"].includes(paymentMethod)
     ) {
       return NextResponse.json(
         {
@@ -860,7 +860,7 @@ export async function POST(request) {
      */
 
     const expiresAt =
-      paymentMethod === "upi"
+      paymentMethod === "online"
         ? addMinutes(
             now,
             PURCHASE_EXPIRY_MINUTES
@@ -927,7 +927,7 @@ export async function POST(request) {
         paymentMethod,
 
         status:
-          paymentMethod === "upi"
+          paymentMethod === "online"
             ? "payment_pending"
             : "cash_pending",
 
@@ -945,7 +945,7 @@ export async function POST(request) {
         success: true,
 
         message:
-          paymentMethod === "upi"
+          paymentMethod === "online"
             ? "Purchase order created. Continue with payment."
             : "Purchase request submitted. Please wait for the gym admin to confirm your cash payment.",
 

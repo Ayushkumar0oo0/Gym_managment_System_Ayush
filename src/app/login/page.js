@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -20,10 +21,47 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState("");
+
+  // Redirect users who already have a valid session.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkExistingSession() {
+      try {
+        const response = await fetch("/api/auth/session", {
+          cache: "no-store",
+        });
+
+        if (!response.ok) return;
+
+        const session = await response.json();
+
+        if (cancelled) return;
+
+        if (session?.user?.role === "admin") {
+          router.replace("/admin");
+        } else if (session?.user?.role === "member") {
+          router.replace("/dashboard");
+        }
+      } catch (error) {
+        console.error("EXISTING SESSION CHECK ERROR:", error);
+      } finally {
+        if (!cancelled) {
+          setCheckingSession(false);
+        }
+      }
+    }
+
+    checkExistingSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -33,13 +71,13 @@ export default function LoginPage() {
 
     try {
       const result = await signIn("credentials", {
-        email,
+        email: email.trim().toLowerCase(),
         password,
         redirect: false,
       });
 
-      if (result?.error) {
-        setError("Invalid email or password");
+      if (result?.error || !result?.ok) {
+        setError("Invalid email or password.");
         setLoading(false);
         return;
       }
@@ -49,7 +87,7 @@ export default function LoginPage() {
       });
 
       if (!sessionResponse.ok) {
-        throw new Error("Unable to get session");
+        throw new Error("Unable to retrieve authenticated session.");
       }
 
       const session = await sessionResponse.json();
@@ -71,20 +109,19 @@ export default function LoginPage() {
       setLoading(false);
     } catch (error) {
       console.error("LOGIN PAGE ERROR:", error);
-
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
   }
+
+  const isBusy = loading || checkingSession;
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#050505] text-white">
       {/* Background */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-220px] h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-orange-500/10 blur-[130px]" />
-
         <div className="absolute bottom-[-180px] right-[-100px] h-[400px] w-[400px] rounded-full bg-orange-600/5 blur-[120px]" />
-
         <div className="absolute left-[-150px] top-1/2 h-[300px] w-[300px] rounded-full bg-orange-500/5 blur-[100px]" />
       </div>
 
@@ -96,10 +133,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <p className="text-sm font-black tracking-[0.2em]">
-              GYM
-            </p>
-
+            <p className="text-sm font-black tracking-[0.2em]">GYM</p>
             <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-orange-400">
               Fitness Club
             </p>
@@ -132,8 +166,7 @@ export default function LoginPage() {
             </h1>
 
             <p className="mt-3 text-sm leading-6 text-zinc-400">
-              Sign in to manage your membership, payments and
-              gym account.
+              Sign in to manage your membership, payments and gym account.
             </p>
           </div>
 
@@ -141,139 +174,155 @@ export default function LoginPage() {
           <div className="rounded-3xl border border-white/10 bg-zinc-950/80 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-8">
             <div className="mb-7 h-1 w-16 rounded-full bg-orange-500" />
 
-            {/* Error */}
-            {error && (
-              <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
-                {error}
+            {checkingSession ? (
+              <div
+                className="flex min-h-48 flex-col items-center justify-center gap-3 text-zinc-400"
+                role="status"
+              >
+                <Loader2
+                  size={28}
+                  className="animate-spin text-orange-400"
+                />
+                <p className="text-sm">Checking your session...</p>
               </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Email */}
-              <div>
-                <label
-                  htmlFor="email"
-                  className="mb-2.5 block text-sm font-semibold text-zinc-200"
-                >
-                  Email Address
-                </label>
-
-                <div className="relative">
-                  <Mail
-                    size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
-                  />
-
-                  <input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                    disabled={loading}
-                    className="h-14 w-full rounded-xl border border-white/10 bg-white/[0.04] pl-12 pr-4 text-white outline-none transition placeholder:text-zinc-600 focus:border-orange-500/60 focus:bg-orange-500/[0.03] focus:ring-4 focus:ring-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div>
-                <div className="mb-2.5 flex items-center justify-between">
-                  <label
-                    htmlFor="password"
-                    className="text-sm font-semibold text-zinc-200"
+            ) : (
+              <>
+                {error && (
+                  <div
+                    className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400"
+                    role="alert"
                   >
-                    Password
-                  </label>
+                    {error}
+                  </div>
+                )}
 
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs font-medium text-zinc-500 transition hover:text-orange-400"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  {/* Email */}
+                  <div>
+                    <label
+                      htmlFor="email"
+                      className="mb-2.5 block text-sm font-semibold text-zinc-200"
+                    >
+                      Email Address
+                    </label>
 
-                <div className="relative">
-                  <LockKeyhole
-                    size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
-                  />
+                    <div className="relative">
+                      <Mail
+                        size={18}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
+                      />
 
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    disabled={loading}
-                    className="h-14 w-full rounded-xl border border-white/10 bg-white/[0.04] pl-12 pr-12 text-white outline-none transition placeholder:text-zinc-600 focus:border-orange-500/60 focus:bg-orange-500/[0.03] focus:ring-4 focus:ring-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
+                      <input
+                        id="email"
+                        name="email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        autoComplete="username"
+                        disabled={isBusy}
+                        className="h-14 w-full rounded-xl border border-white/10 bg-white/[0.04] pl-12 pr-4 text-white outline-none transition placeholder:text-zinc-600 focus:border-orange-500/60 focus:bg-orange-500/[0.03] focus:ring-4 focus:ring-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
 
+                  {/* Password */}
+                  <div>
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <label
+                        htmlFor="password"
+                        className="text-sm font-semibold text-zinc-200"
+                      >
+                        Password
+                      </label>
+
+                      <Link
+                        href="/forgot-password"
+                        className="text-xs font-medium text-zinc-500 transition hover:text-orange-400"
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
+
+                    <div className="relative">
+                      <LockKeyhole
+                        size={18}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
+                      />
+
+                      <input
+                        id="password"
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        autoComplete="current-password"
+                        disabled={isBusy}
+                        className="h-14 w-full rounded-xl border border-white/10 bg-white/[0.04] pl-12 pr-12 text-white outline-none transition placeholder:text-zinc-600 focus:border-orange-500/60 focus:bg-orange-500/[0.03] focus:ring-4 focus:ring-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowPassword((value) => !value)
+                        }
+                        disabled={isBusy}
+                        aria-label={
+                          showPassword ? "Hide password" : "Show password"
+                        }
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-white disabled:opacity-50"
+                      >
+                        {showPassword ? (
+                          <EyeOff size={18} />
+                        ) : (
+                          <Eye size={18} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Login */}
                   <button
-                    type="button"
-                    onClick={() => setShowPassword((value) => !value)}
-                    disabled={loading}
-                    aria-label={
-                      showPassword
-                        ? "Hide password"
-                        : "Show password"
-                    }
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-white disabled:opacity-50"
+                    type="submit"
+                    disabled={isBusy}
+                    className="group flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-orange-500 font-bold text-black shadow-lg shadow-orange-500/20 transition hover:bg-orange-400 hover:shadow-orange-500/30 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {showPassword ? (
-                      <EyeOff size={18} />
+                    {loading ? (
+                      <>
+                        <Loader2 size={19} className="animate-spin" />
+                        Logging in...
+                      </>
                     ) : (
-                      <Eye size={18} />
+                      <>
+                        Login to Account
+                        <ArrowRight
+                          size={19}
+                          className="transition-transform group-hover:translate-x-1"
+                        />
+                      </>
                     )}
                   </button>
+                </form>
+
+                {/* Register */}
+                <div className="mt-7 border-t border-white/10 pt-6 text-center">
+                  <p className="text-sm text-zinc-500">
+                    Don&apos;t have a gym account?
+                  </p>
+
+                  <Link
+                    href="/register"
+                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-orange-400 transition hover:text-orange-300"
+                  >
+                    Create your account
+                    <ArrowRight size={15} />
+                  </Link>
                 </div>
-              </div>
-
-              {/* Login */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="group flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-orange-500 font-bold text-black shadow-lg shadow-orange-500/20 transition hover:bg-orange-400 hover:shadow-orange-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {loading ? (
-                  <>
-                    <Loader2
-                      size={19}
-                      className="animate-spin"
-                    />
-                    Logging in...
-                  </>
-                ) : (
-                  <>
-                    Login to Account
-                    <ArrowRight
-                      size={19}
-                      className="transition-transform group-hover:translate-x-1"
-                    />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Register */}
-            <div className="mt-7 border-t border-white/10 pt-6 text-center">
-              <p className="text-sm text-zinc-500">
-                Don't have a gym account?
-              </p>
-
-              <Link
-                href="/register"
-                className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-orange-400 transition hover:text-orange-300"
-              >
-                Create your account
-                <ArrowRight size={15} />
-              </Link>
-            </div>
+              </>
+            )}
           </div>
 
           {/* Security */}

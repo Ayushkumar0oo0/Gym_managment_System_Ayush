@@ -144,19 +144,18 @@ export async function POST(request) {
     // 7. Payment method must be UPI
     // --------------------------------------------------
 
-    if (
-      purchaseOrder.paymentMethod !==
-      "upi"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "This purchase order is not configured for UPI payment.",
-        },
-        { status: 400 }
-      );
-    }
+    // 7. Payment method must be online
+
+if (!["online", "upi"].includes(purchaseOrder.paymentMethod)) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        "This purchase order is not configured for online payment.",
+    },
+    { status: 400 }
+  );
+}
 
     // --------------------------------------------------
     // 8. Order must still be waiting for payment

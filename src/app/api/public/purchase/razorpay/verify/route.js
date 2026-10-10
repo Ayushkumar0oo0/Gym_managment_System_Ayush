@@ -183,23 +183,22 @@ export async function POST(request) {
       );
     }
 
-    // ==================================================
-    // 8. PAYMENT METHOD MUST BE UPI
-    // ==================================================
+   
+ // 8. PAYMENT METHOD MUST BE ONLINE
 
-    if (
-      purchaseOrder.paymentMethod !==
-      "upi"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "This purchase order is not an online payment order.",
-        },
-        { status: 400 }
-      );
-    }
+if (
+  !["online", "upi"].includes(purchaseOrder.paymentMethod)
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        "This purchase order is not an online payment order.",
+    },
+    { status: 400 }
+  );
+}
+
 
     // ==================================================
     // 9. PURCHASE ORDER MUST BE PENDING
@@ -367,15 +366,6 @@ export async function POST(request) {
   );
 }
 
-if (razorpayPayment.method !== "upi") {
-  return NextResponse.json(
-    {
-      success: false,
-      message: "Only UPI payments are accepted for this purchase.",
-    },
-    { status: 400 }
-  );
-}
 
     // ==================================================
     // 15. VERIFY ORDER ID
@@ -468,24 +458,6 @@ if (razorpayPayment.method !== "upi") {
     }
 
     // ==================================================
-    // 18. PAYMENT MUST BE CAPTURED
-    // ==================================================
-
-    if (
-      razorpayPayment.status !==
-      "captured"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Payment has not been captured yet.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // ==================================================
     // 19. START TRANSACTION
     // ==================================================
 
@@ -559,22 +531,11 @@ if (razorpayPayment.method !== "upi") {
     // ==================================================
 
     if (
-      lockedPurchaseOrder.expiresAt &&
-      new Date(
-        lockedPurchaseOrder.expiresAt
-      ).getTime() <= Date.now()
-    ) {
-      lockedPurchaseOrder.status =
-        "expired";
-
-      await lockedPurchaseOrder.save({
-        session,
-      });
-
-      throw new Error(
-        "Purchase order has expired."
-      );
-    }
+  lockedPurchaseOrder.expiresAt &&
+  new Date(lockedPurchaseOrder.expiresAt).getTime() <= Date.now()
+) {
+  throw new Error("Purchase order has expired.");
+}
 
     // ==================================================
     // 24. VERIFY ORDER ID AGAIN
@@ -654,7 +615,7 @@ if (razorpayPayment.method !== "upi") {
 
         session,
 
-        paymentMethod: "upi",
+        paymentMethod: "online",
 
         gatewayOrderId:
           razorpayOrderId,

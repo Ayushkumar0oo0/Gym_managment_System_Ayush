@@ -110,7 +110,7 @@ export async function GET(request) {
       "refunded",
     ];
 
-    const allowedMethods = ["upi", "cash"];
+    const allowedMethods = ["online", "upi", "cash"];
 
     const allowedPaymentTypes = [
       "registration",
@@ -539,11 +539,11 @@ export async function GET(request) {
 
       Payment.aggregate([
         {
-          $match: {
-            status: "pending",
-            method: "upi",
-          },
-        },
+  $match: {
+    status: "paid",
+    method: "online",
+  },
+},
         {
           $group: {
             _id: null,
@@ -701,7 +701,7 @@ export async function GET(request) {
         {
           $match: {
             status: "paid",
-            method: "upi",
+            method: { $in: ["online", "upi"] },
           },
         },
         {

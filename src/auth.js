@@ -1,3 +1,4 @@
+
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 
@@ -18,7 +19,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           label: "Email",
           type: "email",
         },
-
         password: {
           label: "Password",
           type: "password",
@@ -26,146 +26,98 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
 
       async authorize(credentials, request) {
-        console.log("========== LOGIN START ==========");
-
-        /*
-         * 1. BASIC INPUT CHECK
-         */
-
         if (!credentials?.email || !credentials?.password) {
-          console.log("LOGIN FAILED: Missing email or password");
           return null;
         }
 
-        const email = credentials.email
-          .toString()
-          .toLowerCase()
-          .trim();
-
+        const email = credentials.email.toString().toLowerCase().trim();
         const password = credentials.password.toString();
 
-        console.log("LOGIN EMAIL:", email);
-
         if (!email || !password) {
-          console.log("LOGIN FAILED: Empty email or password");
           return null;
         }
 
-        /*
-         * 2. RATE LIMIT
-         */
-
         const clientIp = getClientIp(request);
-
         const rateLimitIdentifier = createRateLimitIdentifier(
           "login",
           `${clientIp}:${email}`
         );
 
-        const rateLimitResult = await loginRateLimit.limit(
-          rateLimitIdentifier
-        );
-
-        console.log(
-          "RATE LIMIT:",
-          rateLimitResult.success,
-          "remaining:",
-          rateLimitResult.remaining
-        );
+        const rateLimitResult =
+          await loginRateLimit.limit(rateLimitIdentifier);
 
         if (!rateLimitResult.success) {
-          console.warn("LOGIN FAILED: RATE LIMIT EXCEEDED");
           return null;
         }
-
-        /*
-         * 3. DATABASE
-         */
-
-        console.log("Connecting to database...");
 
         await connectDB();
 
-        console.log("Database connected");
+        const user = await User.findOne({ email }).select("+password");
 
-        /*
-         * 4. FIND USER
-         */
-
-        const user = await User.findOne({
-          email,
-        }).select("+password");
-
-        if (!user) {
-          console.log("LOGIN FAILED: USER NOT FOUND");
+        if (!user || !user.isActive || !user.password) {
           return null;
         }
-
-        console.log("USER FOUND:", {
-          id: user._id.toString(),
-          email: user.email,
-          role: user.role,
-          isActive: user.isActive,
-          hasPasswordHash: Boolean(user.password),
-        });
-
-        /*
-         * 5. ACCOUNT STATUS
-         */
-
-        if (!user.isActive) {
-          console.log("LOGIN FAILED: USER ACCOUNT IS INACTIVE");
-          return null;
-        }
-
-        /*
-         * 6. PASSWORD
-         */
 
         const passwordMatch = await bcrypt.compare(
           password,
           user.password
         );
 
-        console.log("PASSWORD MATCH:", passwordMatch);
-
         if (!passwordMatch) {
-          console.log("LOGIN FAILED: PASSWORD DOES NOT MATCH");
           return null;
         }
 
-        /*
-         * 7. SUCCESS
-         */
-
-        const safeUser = {
-          id: user._id.toString(),
-          name: user.name,
-          email: user.email,
-          role: user.role,
-        };
-
-        console.log("LOGIN SUCCESS:", safeUser);
-        console.log("========== LOGIN END ==========");
-
-        return safeUser;
+        return {
+  id: user._id.toString(),
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  sessionVersion: user.sessionVersion ?? 0,
+};
       },
     }),
   ],
 
+  // Persist login across browser restarts for up to 30 days.
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60,
+    updateAge: 24 * 60 * 60,
   },
 
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = user.role;
-      }
+  // Set secure cookie options in production.
+  useSecureCookies: process.env.NODE_ENV === "production",
 
-      return token;
-    },
+  callbacks: {
+ 
+async jwt({ token, user }) {
+  if (user) {
+    token.id = user.id;
+    token.role = user.role;
+    token.sessionVersion = user.sessionVersion ?? 0;
+  }
+
+  if (!token.id || token.sessionVersion === undefined) {
+    return null;
+  }
+
+  await connectDB();
+
+  const currentUser = await User.findById(token.id)
+    .select("role isActive sessionVersion")
+    .lean();
+
+  if (
+    !currentUser ||
+    !currentUser.isActive ||
+    currentUser.role !== token.role ||
+    (currentUser.sessionVersion ?? 0) !== token.sessionVersion
+  ) {
+    return null;
+  }
+
+  return token;
+},
 
     async session({ session, token }) {
       if (session.user) {

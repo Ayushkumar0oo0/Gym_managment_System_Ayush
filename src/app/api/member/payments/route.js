@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -7,9 +8,7 @@ import Payment from "@/models/Payment";
 
 export async function GET(request) {
   try {
-    // ---------------------------------------------------------
     // 1. AUTHENTICATION
-    // ---------------------------------------------------------
     const session = await auth();
 
     if (!session?.user) {
@@ -22,9 +21,7 @@ export async function GET(request) {
       );
     }
 
-    // ---------------------------------------------------------
     // 2. MEMBER ACCESS ONLY
-    // ---------------------------------------------------------
     if (session.user.role !== "member") {
       return NextResponse.json(
         {
@@ -35,35 +32,21 @@ export async function GET(request) {
       );
     }
 
-    // ---------------------------------------------------------
     // 3. DATABASE
-    // ---------------------------------------------------------
     await connectDB();
 
-    // ---------------------------------------------------------
     // 4. QUERY PARAMETERS
-    // ---------------------------------------------------------
     const { searchParams } = new URL(request.url);
 
-    const requestedPage = Number(
-      searchParams.get("page") || 1
-    );
+    const requestedPage = Number(searchParams.get("page") || 1);
+    const requestedLimit = Number(searchParams.get("limit") || 10);
 
-    const requestedLimit = Number(
-      searchParams.get("limit") || 10
-    );
-
-    const paymentType =
-      searchParams.get("paymentType") || "";
-
+    const paymentType = searchParams.get("paymentType") || "";
     const method = searchParams.get("method") || "";
-
-    const status =
-      searchParams.get("status") || "";
+    const status = searchParams.get("status") || "";
 
     const page =
-      Number.isInteger(requestedPage) &&
-      requestedPage > 0
+      Number.isInteger(requestedPage) && requestedPage > 0
         ? requestedPage
         : 1;
 
@@ -74,9 +57,7 @@ export async function GET(request) {
         ? requestedLimit
         : 10;
 
-    // ---------------------------------------------------------
     // 5. VALIDATE FILTERS
-    // ---------------------------------------------------------
     const allowedPaymentTypes = [
       "registration",
       "membership",
@@ -86,10 +67,7 @@ export async function GET(request) {
       "other",
     ];
 
-    const allowedMethods = [
-      "upi",
-      "cash",
-    ];
+    const allowedMethods = ["online", "upi", "cash"];
 
     const allowedStatuses = [
       "pending",
@@ -98,10 +76,7 @@ export async function GET(request) {
       "refunded",
     ];
 
-    if (
-      paymentType &&
-      !allowedPaymentTypes.includes(paymentType)
-    ) {
+    if (paymentType && !allowedPaymentTypes.includes(paymentType)) {
       return NextResponse.json(
         {
           success: false,
@@ -111,10 +86,7 @@ export async function GET(request) {
       );
     }
 
-    if (
-      method &&
-      !allowedMethods.includes(method)
-    ) {
+    if (method && !allowedMethods.includes(method)) {
       return NextResponse.json(
         {
           success: false,
@@ -124,10 +96,7 @@ export async function GET(request) {
       );
     }
 
-    if (
-      status &&
-      !allowedStatuses.includes(status)
-    ) {
+    if (status && !allowedStatuses.includes(status)) {
       return NextResponse.json(
         {
           success: false,
@@ -137,9 +106,7 @@ export async function GET(request) {
       );
     }
 
-    // ---------------------------------------------------------
     // 6. BUILD QUERY
-    // ---------------------------------------------------------
     const query = {
       user: session.user.id,
     };
@@ -156,153 +123,83 @@ export async function GET(request) {
       query.status = status;
     }
 
-    // ---------------------------------------------------------
     // 7. PAGINATION
-    // ---------------------------------------------------------
     const skip = (page - 1) * limit;
 
-    // ---------------------------------------------------------
     // 8. FETCH PAYMENTS
-    // ---------------------------------------------------------
-    const [payments, totalPayments] =
-      await Promise.all([
-        Payment.find(query)
-          .populate(
-            "membershipPlan",
-            "name description price durationInDays features"
-          )
-          .populate(
-            "promotion",
-            "type title description offerPrice extensionDays"
-          )
-          .populate(
-            "membership",
-            "membershipType startDate endDate status"
-          )
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+    const [payments, totalPayments] = await Promise.all([
+      Payment.find(query)
+        .populate(
+          "membershipPlan",
+          "name description price durationInDays features"
+        )
+        .populate(
+          "promotion",
+          "type title description offerPrice extensionDays"
+        )
+        .populate(
+          "membership",
+          "membershipType startDate endDate status"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-        Payment.countDocuments(query),
-      ]);
+      Payment.countDocuments(query),
+    ]);
 
-    // ---------------------------------------------------------
     // 9. FORMAT PAYMENTS
-    // ---------------------------------------------------------
-    const formattedPayments = payments.map(
-      (payment) => ({
-        id: payment._id,
+    const formattedPayments = payments.map((payment) => ({
+      id: payment._id.toString(),
+      amount: payment.amount,
+      method: payment.method,
+      status: payment.status,
+      paymentType: payment.paymentType,
 
-        amount: payment.amount,
+      transactionId: payment.transactionId || null,
+      gatewayOrderId: payment.gatewayOrderId || null,
+      gatewayPaymentId: payment.gatewayPaymentId || null,
 
-        method: payment.method,
+      membershipStartDate: payment.membershipStartDate || null,
+      paidAt: payment.paidAt || null,
+      createdAt: payment.createdAt || null,
+      notes: payment.notes || "",
 
-        status: payment.status,
+      membershipPlan: payment.membershipPlan
+        ? {
+            id: payment.membershipPlan._id.toString(),
+            name: payment.membershipPlan.name,
+            description: payment.membershipPlan.description || "",
+            price: payment.membershipPlan.price,
+            durationInDays: payment.membershipPlan.durationInDays,
+            features: payment.membershipPlan.features || [],
+          }
+        : null,
 
-        paymentType: payment.paymentType,
+      promotion: payment.promotion
+        ? {
+            id: payment.promotion._id.toString(),
+            type: payment.promotion.type,
+            title: payment.promotion.title,
+            description: payment.promotion.description || "",
+            offerPrice: payment.promotion.offerPrice,
+            extensionDays: payment.promotion.extensionDays ?? null,
+          }
+        : null,
 
-        transactionId:
-          payment.transactionId || null,
+      membership: payment.membership
+        ? {
+            id: payment.membership._id.toString(),
+            membershipType: payment.membership.membershipType,
+            startDate: payment.membership.startDate,
+            endDate: payment.membership.endDate,
+            status: payment.membership.status,
+          }
+        : null,
+    }));
 
-        gatewayOrderId:
-          payment.gatewayOrderId || null,
-
-        gatewayPaymentId:
-          payment.gatewayPaymentId || null,
-
-        membershipStartDate:
-          payment.membershipStartDate || null,
-
-        paidAt:
-          payment.paidAt || null,
-
-        createdAt:
-          payment.createdAt || null,
-
-        notes:
-          payment.notes || "",
-
-        membershipPlan:
-          payment.membershipPlan
-            ? {
-                id:
-                  payment.membershipPlan._id,
-
-                name:
-                  payment.membershipPlan.name,
-
-                description:
-                  payment.membershipPlan
-                    .description || "",
-
-                price:
-                  payment.membershipPlan.price,
-
-                durationInDays:
-                  payment.membershipPlan
-                    .durationInDays,
-
-                features:
-                  payment.membershipPlan
-                    .features || [],
-              }
-            : null,
-
-        promotion:
-          payment.promotion
-            ? {
-                id: payment.promotion._id,
-
-                type:
-                  payment.promotion.type,
-
-                title:
-                  payment.promotion.title,
-
-                description:
-                  payment.promotion
-                    .description || "",
-
-                offerPrice:
-                  payment.promotion
-                    .offerPrice,
-
-                extensionDays:
-                  payment.promotion
-                    .extensionDays || null,
-              }
-            : null,
-
-        membership:
-          payment.membership
-            ? {
-                id:
-                  payment.membership._id,
-
-                membershipType:
-                  payment.membership
-                    .membershipType,
-
-                startDate:
-                  payment.membership
-                    .startDate,
-
-                endDate:
-                  payment.membership
-                    .endDate,
-
-                status:
-                  payment.membership
-                    .status,
-              }
-            : null,
-      })
-    );
-
-    // ---------------------------------------------------------
-    // 10. MEMBER PAYMENT STATS
-    // ---------------------------------------------------------
+    // 10. MEMBER PAYMENT STATISTICS
     const [
       totalPaidResult,
       totalPendingResult,
@@ -313,7 +210,9 @@ export async function GET(request) {
       registrationRevenueResult,
       cashRevenueResult,
       upiRevenueResult,
+      onlineRevenueResult,
     ] = await Promise.all([
+      // All paid payments, regardless of method
       Payment.aggregate([
         {
           $match: {
@@ -439,6 +338,7 @@ export async function GET(request) {
         },
       ]),
 
+      // Legacy UPI payments
       Payment.aggregate([
         {
           $match: {
@@ -454,14 +354,28 @@ export async function GET(request) {
           },
         },
       ]),
+
+      // New online payments
+      Payment.aggregate([
+        {
+          $match: {
+            user: session.user.id,
+            status: "paid",
+            method: "online",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            amount: { $sum: "$amount" },
+          },
+        },
+      ]),
     ]);
 
-    const totalPages =
-      Math.ceil(totalPayments / limit);
+    const totalPages = Math.ceil(totalPayments / limit);
 
-    // ---------------------------------------------------------
     // 11. RESPONSE
-    // ---------------------------------------------------------
     return NextResponse.json(
       {
         success: true,
@@ -473,59 +387,41 @@ export async function GET(request) {
           limit,
           totalPayments,
           totalPages,
-          hasNextPage:
-            page < totalPages,
-          hasPreviousPage:
-            page > 1,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: page > 1,
         },
 
         stats: {
-          totalPaid:
-            totalPaidResult[0]?.amount || 0,
-
-          totalPending:
-            totalPendingResult[0]?.amount || 0,
-
-          totalRefunded:
-            totalRefundedResult[0]?.amount || 0,
+          totalPaid: totalPaidResult[0]?.amount || 0,
+          totalPending: totalPendingResult[0]?.amount || 0,
+          totalRefunded: totalRefundedResult[0]?.amount || 0,
 
           membershipRevenue:
-            membershipRevenueResult[0]?.amount ||
-            0,
+            membershipRevenueResult[0]?.amount || 0,
 
           renewalRevenue:
-            renewalRevenueResult[0]?.amount ||
-            0,
+            renewalRevenueResult[0]?.amount || 0,
 
           promotionRevenue:
-            promotionRevenueResult[0]?.amount ||
-            0,
+            promotionRevenueResult[0]?.amount || 0,
 
           registrationRevenue:
-            registrationRevenueResult[0]?.amount ||
-            0,
+            registrationRevenueResult[0]?.amount || 0,
 
-          cashRevenue:
-            cashRevenueResult[0]?.amount || 0,
-
-          upiRevenue:
-            upiRevenueResult[0]?.amount || 0,
+          cashRevenue: cashRevenueResult[0]?.amount || 0,
+          upiRevenue: upiRevenueResult[0]?.amount || 0,
+          onlineRevenue: onlineRevenueResult[0]?.amount || 0,
         },
       },
       { status: 200 }
     );
   } catch (error) {
-    console.error(
-      "MEMBER PAYMENTS API ERROR:",
-      error
-    );
+    console.error("MEMBER PAYMENTS API ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          error?.message ||
-          "Failed to load payment history.",
+        message: error?.message || "Failed to load payment history.",
       },
       { status: 500 }
     );

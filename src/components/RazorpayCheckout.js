@@ -14,7 +14,7 @@ import {
 export default function RazorpayCheckout({
   promotionId,
   promotionType = "membership",
-  buttonText = "Pay with UPI",
+  buttonText = "Pay Online",
   className = "",
 }) {
   const [loading, setLoading] = useState(false);
@@ -63,9 +63,9 @@ export default function RazorpayCheckout({
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            method: "upi",
-          }),
+         body: JSON.stringify({
+  method: "online",
+}),
         }
       );
 
@@ -235,7 +235,7 @@ export default function RazorpayCheckout({
       razorpay.open();
     } catch (error) {
       console.error(
-        "Extension UPI payment error:",
+        "Extension Online payment error:",
         error
       );
 
@@ -471,7 +471,7 @@ export default function RazorpayCheckout({
         razorpay.open();
       } catch (error) {
         console.error(
-          "UPI payment error:",
+          "ONLINE payment error:",
           error
         );
 
@@ -581,7 +581,7 @@ export default function RazorpayCheckout({
                 ) : (
                   <>
                     <Smartphone size={17} />
-                    Pay with UPI
+                    Pay with ONLINE
                   </>
                 )}
               </button>
@@ -656,7 +656,7 @@ export default function RazorpayCheckout({
               size={13}
               className="text-orange-500"
             />
-            Secure UPI payment powered by Razorpay
+            Secure ONLINE payment powered by Razorpay
           </div>
         </div>
       )}

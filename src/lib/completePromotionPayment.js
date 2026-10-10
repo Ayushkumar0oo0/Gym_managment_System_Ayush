@@ -735,6 +735,12 @@ export async function completePromotionPayment(
 
     const oldEndDate =
       new Date(membership.endDate);
+      
+      if (oldEndDate <= new Date()) {
+  throw new Error(
+    "This membership has expired and cannot use an extension promotion."
+  );
+}
 
     if (
       Number.isNaN(

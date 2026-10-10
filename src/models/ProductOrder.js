@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 const productOrderSchema = new mongoose.Schema(
@@ -44,16 +45,7 @@ const productOrderSchema = new mongoose.Schema(
       required: true,
       min: 30,
       max: 100,
-      enum: [
-        30,
-        40,
-        50,
-        60,
-        70,
-        80,
-        90,
-        100,
-      ],
+      enum: [30, 40, 50, 60, 70, 80, 90, 100],
     },
 
     // Amount expected as initial payment
@@ -73,18 +65,14 @@ const productOrderSchema = new mongoose.Schema(
     // Initial payment method
     initialPaymentMethod: {
       type: String,
-      enum: ["cash", "upi"],
-      required: true,
+      enum: ["cash", "online", "upi"],
+      default: null,
     },
 
     // Whether initial payment has been confirmed
     initialPaymentStatus: {
       type: String,
-      enum: [
-        "pending",
-        "paid",
-        "failed",
-      ],
+      enum: ["pending", "paid", "failed"],
       default: "pending",
     },
 
@@ -98,7 +86,7 @@ const productOrderSchema = new mongoose.Schema(
     // Final payment method
     finalPaymentMethod: {
       type: String,
-      enum: ["cash", "upi"],
+      enum: ["cash", "online", "upi"],
       default: null,
     },
 
@@ -112,21 +100,14 @@ const productOrderSchema = new mongoose.Schema(
     // Final payment status
     finalPaymentStatus: {
       type: String,
-      enum: [
-        "pending",
-        "paid",
-      ],
+      enum: ["pending", "paid"],
       default: "pending",
     },
 
     // Overall payment status
     paymentStatus: {
       type: String,
-      enum: [
-        "pending",
-        "partially_paid",
-        "paid",
-      ],
+      enum: ["pending", "partially_paid", "paid"],
       default: "pending",
       index: true,
     },
@@ -165,17 +146,19 @@ const productOrderSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
-    gatewayOrderId: {
-  type: String,
-  trim: true,
-  default: null,
-},
 
-gatewayPaymentId: {
-  type: String,
-  trim: true,
-  default: null,
-},
+    // Razorpay order and payment IDs
+    gatewayOrderId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    gatewayPaymentId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
 
     // Admin who confirmed final cash payment
     finalPaymentConfirmedBy: {
@@ -215,9 +198,6 @@ gatewayPaymentId: {
 
 const ProductOrder =
   mongoose.models.ProductOrder ||
-  mongoose.model(
-    "ProductOrder",
-    productOrderSchema
-  );
+  mongoose.model("ProductOrder", productOrderSchema);
 
 export default ProductOrder;

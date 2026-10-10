@@ -371,7 +371,7 @@ export async function POST(request, { params }) {
 
           amount: totalAmount,
 
-          method: "upi",
+          method: "online",
 
           status: "pending",
 
@@ -425,7 +425,7 @@ export async function POST(request, { params }) {
 
             amount: totalAmount,
 
-            method: "upi",
+            method: "online",
 
             status: "pending",
 
@@ -620,7 +620,7 @@ export async function POST(request, { params }) {
 
           amount: totalAmount,
 
-          method: "upi",
+          method: "online",
 
           status: "pending",
 
@@ -664,7 +664,7 @@ export async function POST(request, { params }) {
 
             amount: totalAmount,
 
-            method: "upi",
+            method: "online",
 
             status: "pending",
 
