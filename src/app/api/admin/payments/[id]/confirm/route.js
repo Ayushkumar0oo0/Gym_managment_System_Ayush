@@ -569,10 +569,12 @@ export async function POST(request, { params }) {
             "₹500 registration fee"
           );
 
-        const registrationFee =
-          registrationFeeIncluded
-            ? REGISTRATION_FEE
-            : 0;
+        const registrationFeeIncluded =
+  Number(payment.amount) === planPrice + REGISTRATION_FEE;
+
+const registrationFee = registrationFeeIncluded
+  ? REGISTRATION_FEE
+  : 0;
 
         const expectedAmount =
           planPrice + registrationFee;
