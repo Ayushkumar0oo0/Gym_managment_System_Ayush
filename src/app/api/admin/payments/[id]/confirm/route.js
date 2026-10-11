@@ -566,13 +566,13 @@ export async function POST(request, { params }) {
 
        
 
-       const registrationFeeIncluded =
-  Number(payment.amount) === planPrice + registrationFee;
+const registrationFeeIncluded =
+  Number(payment.amount) ===
+  planPrice + REGISTRATION_FEE;
 
 const registrationFee = registrationFeeIncluded
   ? REGISTRATION_FEE
   : 0;
-
         const expectedAmount =
           planPrice + registrationFee;
 

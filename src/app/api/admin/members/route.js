@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -6,7 +7,10 @@ import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User";
 import Membership from "@/models/Membership";
 
-export async function GET() {
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 50;
+
+export async function GET(request) {
   try {
     const session = await auth();
 
@@ -30,15 +34,49 @@ export async function GET() {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+
+    const page = Math.max(
+      1,
+      Number.parseInt(searchParams.get("page") || "1", 10) || 1
+    );
+
+    const limit = Math.min(
+      MAX_LIMIT,
+      Math.max(
+        1,
+        Number.parseInt(
+          searchParams.get("limit") || String(DEFAULT_LIMIT),
+          10
+        ) || DEFAULT_LIMIT
+      )
+    );
+
+    const search = (searchParams.get("search") || "").trim();
+
     await connectDB();
 
-    // --------------------------------------------------
-    // 1. Get all members
-    // --------------------------------------------------
+    const filter = { role: "member" };
 
-    const members = await User.find({
-      role: "member",
-    })
+    if (search) {
+      const escapedSearch = search.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
+      const searchRegex = new RegExp(escapedSearch, "i");
+
+      filter.$or = [
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+      ];
+    }
+
+    // Count all matching members for accurate pagination and totals.
+    const total = await User.countDocuments(filter);
+
+    const members = await User.find(filter)
       .select(
         [
           "name",
@@ -54,20 +92,26 @@ export async function GET() {
           "emergencyContactRelation",
         ].join(" ")
       )
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
       .lean();
 
     if (members.length === 0) {
       return NextResponse.json({
         success: true,
         members: [],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasMore: page * limit < total,
+        },
       });
     }
 
-    // --------------------------------------------------
-    // 2. Get memberships
-    // --------------------------------------------------
-
+    // Fetch memberships only for the members on this page.
     const memberIds = members.map((member) => member._id);
 
     const memberships = await Membership.find({
@@ -80,21 +124,22 @@ export async function GET() {
       .sort({ startDate: -1 })
       .lean();
 
-    // --------------------------------------------------
-    // 3. Group memberships by user
-    // --------------------------------------------------
-
     const membershipsByUser = new Map();
 
     for (const membership of memberships) {
       const userIds = [];
 
       if (membership.user) {
-        userIds.push(String(membership.user));
+        userIds.push(String(membership.user._id || membership.user));
       }
 
       if (membership.secondaryUser) {
-        userIds.push(String(membership.secondaryUser));
+        userIds.push(
+          String(
+            membership.secondaryUser._id ||
+              membership.secondaryUser
+          )
+        );
       }
 
       for (const userId of userIds) {
@@ -105,10 +150,6 @@ export async function GET() {
         membershipsByUser.get(userId).push(membership);
       }
     }
-
-    // --------------------------------------------------
-    // 4. Build member response
-    // --------------------------------------------------
 
     const now = new Date();
 
@@ -133,9 +174,7 @@ export async function GET() {
 
         daysRemaining = Math.max(
           0,
-          Math.ceil(
-            difference / (1000 * 60 * 60 * 24)
-          )
+          Math.ceil(difference / (1000 * 60 * 60 * 24))
         );
       }
 
@@ -145,7 +184,12 @@ export async function GET() {
         email: member.email,
         phone: member.phone,
         isActive: member.isActive,
+        role: member.role,
         createdAt: member.createdAt,
+
+        registrationFeePaid: member.registrationFeePaid,
+        registrationFeePaidAt: member.registrationFeePaidAt,
+        registrationFeeWaived: member.registrationFeeWaived,
 
         registration: {
           paid: member.registrationFeePaid,
@@ -163,16 +207,13 @@ export async function GET() {
           ? {
               _id: activeMembership._id,
               plan: activeMembership.plan,
-              membershipType:
-                activeMembership.membershipType,
+              membershipType: activeMembership.membershipType,
               startDate: activeMembership.startDate,
               endDate: activeMembership.endDate,
               status: activeMembership.status,
-              priceAtPurchase:
-                activeMembership.priceAtPurchase,
+              priceAtPurchase: activeMembership.priceAtPurchase,
               daysRemaining,
-              selectedAddOns:
-                activeMembership.selectedAddOns || [],
+              selectedAddOns: activeMembership.selectedAddOns || [],
             }
           : null,
 
@@ -180,13 +221,16 @@ export async function GET() {
       };
     });
 
-    // --------------------------------------------------
-    // 5. Return response
-    // --------------------------------------------------
-
     return NextResponse.json({
       success: true,
       members: membersWithMembership,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      },
     });
   } catch (error) {
     console.error("GET ADMIN MEMBERS ERROR:", error);
@@ -194,8 +238,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        message:
-          error?.message || "Failed to load members.",
+        message: error?.message || "Failed to load members.",
       },
       { status: 500 }
     );

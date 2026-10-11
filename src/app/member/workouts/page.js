@@ -62,6 +62,45 @@ function formatGroup(value) {
       letter.toUpperCase()
     );
 }
+function machineMatchesMuscleGroup(machine, group) {
+  const normalize = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+  const aliases = {
+    chest: ["chest", "pectorals"],
+    back: ["back", "lats", "latissimus_dorsi"],
+    shoulders: ["shoulders", "delts", "deltoids"],
+    legs: [
+      "legs",
+      "glutes",
+      "calves",
+      "hamstrings",
+      "quadriceps",
+      "quads",
+    ],
+    core: ["core", "abs", "abdominals"],
+    arms: ["arms", "biceps", "triceps", "forearms"],
+    biceps: ["biceps", "arms", "forearms"],
+    triceps: ["triceps", "arms", "forearms"],
+    cardio: ["cardio"],
+  };
+
+  const machineGroups = [
+    ...(machine.muscleGroups || []),
+    ...(machine.bodyParts || []),
+    machine.category,
+  ].map(normalize);
+
+  const targetGroups =
+    aliases[normalize(group)] || [normalize(group)];
+
+  return targetGroups.some((alias) =>
+    machineGroups.includes(alias)
+  );
+}
 
 function formatRest(seconds) {
   if (!seconds) return "—";
@@ -121,17 +160,20 @@ export default function MemberWorkoutsPage() {
 
   const [selectedDay, setSelectedDay] =
     useState("today");
+    const [expandedGroups, setExpandedGroups] = useState({});
 
   async function loadWorkout() {
     try {
       setLoading(true);
       setError("");
 
-      const params = new URLSearchParams();
+     const params = new URLSearchParams();
 
-      if (search.trim()) {
-        params.set("search", search.trim());
-      }
+params.set("day", selectedDay);
+
+if (search.trim()) {
+  params.set("search", search.trim());
+}
 
       const response = await fetch(
         `/api/member/workout-machines?${params.toString()}`,
@@ -178,7 +220,7 @@ export default function MemberWorkoutsPage() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [search]);
+  }, [search, selectedDay]);
 
   const selectedDayData = useMemo(() => {
     if (selectedDay === "today") {
@@ -194,78 +236,52 @@ export default function MemberWorkoutsPage() {
     weeklySchedule,
   ]);
 
-  const visibleMachines = useMemo(() => {
+ 
+  
+ 
+ 
+   const visibleMachines = useMemo(() => {
     if (!selectedDayData) {
       return machines;
+    }
+
+    const groups = selectedDayData.muscleGroups || [];
+
+    if (
+      selectedDayData.isRestDay ||
+      groups.includes("rest") ||
+      groups.length === 0
+    ) {
+      return [];
     }
 
     if (selectedDay === "today") {
       return machines;
     }
 
-    const groups =
-      selectedDayData.muscleGroups || [];
+    return machines.filter((machine) =>
+      groups.some((group) =>
+        machineMatchesMuscleGroup(machine, group)
+      )
+    );
+  }, [machines, selectedDay, selectedDayData]);
 
-    if (
-      !groups.length ||
-      groups.includes("rest")
-    ) {
-      return [];
-    }
+const groupedMachines = useMemo(() => {
+    const groups = selectedDayData?.muscleGroups || [];
 
-    return machines.filter((machine) => {
-      const machineParts = [
-        ...(machine.bodyParts || []),
-        machine.category,
-      ].map((value) =>
-        String(value).toLowerCase()
-      );
-
-      return groups.some((group) => {
-        const normalized =
-          String(group).toLowerCase();
-
-        if (normalized === "arms") {
-          return (
-            machineParts.includes("arms") ||
-            machineParts.includes("biceps") ||
-            machineParts.includes("triceps") ||
-            machineParts.includes("forearms")
-          );
-        }
-
-        if (normalized === "core") {
-          return (
-            machineParts.includes("core") ||
-            machineParts.includes("abs")
-          );
-        }
-
-        if (normalized === "legs") {
-          return (
-            machineParts.includes("legs") ||
-            machineParts.includes("glutes") ||
-            machineParts.includes("hamstrings") ||
-            machineParts.includes("calves")
-          );
-        }
-
-        return machineParts.includes(normalized);
-      });
-    });
-  }, [
-    machines,
-    selectedDay,
-    selectedDayData,
-  ]);
+    return groups.map((group) => ({
+      group,
+      machines: visibleMachines.filter((machine) =>
+        machineMatchesMuscleGroup(machine, group)
+      ),
+    }));
+  }, [selectedDayData, visibleMachines]);
 
   const isRestDay =
     selectedDayData?.isRestDay ||
-    selectedDayData?.muscleGroups?.includes(
-      "rest"
-    );
+    selectedDayData?.muscleGroups?.includes("rest");
 
-  return (
+ return (
     <main className="min-h-screen bg-[#050505] text-white">
       {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -511,17 +527,65 @@ export default function MemberWorkoutsPage() {
               clear={() => setSearch("")}
             />
           ) : (
+            <div className="space-y-10">
+  {groupedMachines.map(({ group, machines: groupMachines }) => {
+    const groupKey = `${selectedDay}-${group}`;
+    const isExpanded = Boolean(expandedGroups[groupKey]);
+    const displayedMachines = isExpanded
+      ? groupMachines
+      : groupMachines.slice(0, 3);
+
+    return (
+      <div key={group}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-black">
+              {formatGroup(group)}
+            </h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              {groupMachines.length} equipment options
+            </p>
+          </div>
+        </div>
+
+        {groupMachines.length === 0 ? (
+          <p className="rounded-xl border border-white/[0.06] bg-[#101010] p-4 text-sm text-zinc-500">
+            No machines found for this muscle group.
+          </p>
+        ) : (
+          <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleMachines.map((machine) => (
+              {displayedMachines.map((machine) => (
                 <WorkoutCard
                   key={machine.key}
                   machine={machine}
-                  onClick={() =>
-                    setSelectedMachine(machine)
-                  }
+                  onClick={() => setSelectedMachine(machine)}
                 />
               ))}
             </div>
+
+            {groupMachines.length > 3 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedGroups((previous) => ({
+                    ...previous,
+                    [groupKey]: !previous[groupKey],
+                  }))
+                }
+                className="mt-4 rounded-xl border border-orange-500/20 bg-orange-500/[0.06] px-4 py-3 text-sm font-bold text-orange-400 transition hover:bg-orange-500/10"
+              >
+                {isExpanded
+                  ? "Show less"
+                  : `Show more (${groupMachines.length - 3})`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  })}
+</div>
           )}
         </section>
       </div>

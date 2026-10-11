@@ -466,6 +466,24 @@ await ensureDefaultCatalog();
 
     const mode =
       searchParams.get("mode") || "today";
+      const requestedDay = (
+  searchParams.get("day") || "today"
+).toLowerCase();
+
+const selectedWorkout =
+  requestedDay === "today"
+    ? WORKOUT_SCHEDULE[getCurrentDay()]
+    : WORKOUT_SCHEDULE[requestedDay];
+
+if (!selectedWorkout) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Invalid workout day.",
+    },
+    { status: 400 }
+  );
+}
 
     /* -----------------------------------------------------
        MEMBER
@@ -490,10 +508,7 @@ await ensureDefaultCatalog();
        TODAY'S WORKOUT
     ----------------------------------------------------- */
 
-    const currentDay = getCurrentDay();
-
-    const todayWorkout =
-      WORKOUT_SCHEDULE[currentDay];
+    const todayWorkout = selectedWorkout;
 
     /* -----------------------------------------------------
        WEEKLY SCHEDULE
